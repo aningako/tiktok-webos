@@ -1,0 +1,33 @@
+<!doctype html><html><head><meta charset="utf-8"><title>TikTok</title>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden}
+iframe{border:0;position:fixed;top:0;left:0;background:#000;transform-origin:0 0}
+#t{position:fixed;right:40px;top:30px;background:rgba(0,0,0,.75);color:#fff;font:32px sans-serif;padding:12px 24px;border-radius:12px;opacity:0;transition:opacity .3s;pointer-events:none;z-index:9}
+</style></head><body>
+<div id="t"></div>
+<iframe id="f" src="/" allow="autoplay; fullscreen"></iframe>
+<script>
+var f=document.getElementById('f'), tip=document.getElementById('t'), z=125, tm;
+try{ z=parseInt(localStorage.getItem('tvzoom'),10)||125; }catch(e){}
+function apply(show){
+  z=Math.max(75,Math.min(250,z));
+  var s=z/100;
+  f.style.width=(100/s)+'vw'; f.style.height=(100/s)+'vh'; f.style.transform='scale('+s+')';
+  try{ localStorage.setItem('tvzoom',z); }catch(e){}
+  if(show){ tip.textContent='Zoom '+z+'%'; tip.style.opacity=1; clearTimeout(tm); tm=setTimeout(function(){tip.style.opacity=0;},1200); }
+}
+function foc(){try{f.focus();f.contentWindow.focus();}catch(e){}}
+f.addEventListener('load',foc); setInterval(foc,2000);
+function zoom(d){ if(d===0) z=125; else z+=d*25; apply(true); }
+addEventListener('message',function(e){
+  if(e.data==='tv-exit'){ try{window.close();}catch(x){} }
+  else if(e.data==='tv-zoom-in') zoom(1);
+  else if(e.data==='tv-zoom-out') zoom(-1);
+  else if(e.data==='tv-zoom-reset') zoom(0);
+});
+addEventListener('keydown',function(e){
+  if(e.keyCode===461||e.keyCode===27){ try{window.close();}catch(x){} }
+  else if(e.keyCode===427) zoom(1); else if(e.keyCode===428) zoom(-1);
+});
+apply(false);
+</script></body></html>

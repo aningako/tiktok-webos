@@ -1,0 +1,5 @@
+{
+  "id": "com.homebrew.tiktok.proxy",
+  "description": "TikTok mobile-emulation proxy",
+  "services": [ { "name": "com.homebrew.tiktok.proxy" } ]
+}

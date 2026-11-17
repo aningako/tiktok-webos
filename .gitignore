@@ -1,0 +1,5 @@
+node_modules/
+*.log
+.DS_Store
+# built packages live in releases/ (attach to GitHub Releases); stray builds in the root are ignored
+/*.ipk
