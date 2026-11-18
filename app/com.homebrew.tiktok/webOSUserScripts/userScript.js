@@ -270,10 +270,44 @@
     }
   }, 700);
 
+  /* Mute through TikTok's own sound button so its icon and state stay in sync (toggling video.muted
+     directly left TikTok showing "muted" while sound played). Its button reacts to pointer events,
+     not a bare click(). Falls back to toggling the video if no button is found or nothing changed. */
+  var SOUND_BTN = '[data-e2e="cinema-playback-control-volume"] button, button[aria-label="Volume"], ' +
+    '[data-e2e="video-sound"], [data-e2e*="mute"], [class*="DivMuteIconContainer"], [class*="DivVolumeIcon"]';
+  function soundButton(v) {
+    var bs = document.querySelectorAll(SOUND_BTN), best = null, d = 1e9, vr = v.getBoundingClientRect();
+    for (var i = 0; i < bs.length; i++) {
+      if (!visible(bs[i])) continue;
+      var r = bs[i].getBoundingClientRect(), dd = Math.abs(r.top - vr.bottom) + Math.abs(r.left - vr.left) / 4;
+      if (dd < d) { d = dd; best = bs[i]; }
+    }
+    return best;
+  }
+  function pointerPress(el) {
+    var r = el.getBoundingClientRect(), o = { bubbles: true, cancelable: true, clientX: r.left + r.width / 2,
+      clientY: r.top + r.height / 2, pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 1 };
+    ['pointerover', 'pointerenter', 'mouseover', 'pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(function (t) {
+      el.dispatchEvent(t.indexOf('pointer') === 0 ? new PointerEvent(t, o) : new MouseEvent(t, o));
+    });
+    setTimeout(function () {                         // close the volume slider TikTok opens on hover
+      ['pointerout', 'pointerleave', 'mouseout', 'mouseleave'].forEach(function (t) {
+        el.dispatchEvent(t.indexOf('pointer') === 0 ? new PointerEvent(t, o) : new MouseEvent(t, o));
+      });
+    }, 300);
+  }
   function toggleMute() {
     var v = bestVideo(); if (!v) return;
-    v.muted = !v.muted; if (!v.muted && v.volume === 0) v.volume = 1;
-    toast(v.muted ? 'Muted' : 'Sound on');
+    var before = v.muted, b = soundButton(v);
+    function done() { if (!v.muted && v.volume === 0) v.volume = 1; toast(v.muted ? 'Muted' : 'Sound on'); }
+    if (!b) { v.muted = !before; return done(); }
+    pointerPress(b);
+    setTimeout(function () {
+      if (v.muted !== before) return done();
+      // Unchanged: TikTok's icon was out of sync with the video, so that press only fixed its icon.
+      pointerPress(b);
+      setTimeout(function () { if (v.muted === before) v.muted = !before; done(); }, 500);
+    }, 500);
   }
   function like() {
     var icons = document.querySelectorAll('[data-e2e="like-icon"],[data-e2e="browse-like-icon"]'), best = null, d = 1e9;

@@ -2,6 +2,12 @@
 
 All notable changes to this project. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.2.5]
+### Fixed
+- Left (mute) now presses TikTok's own sound button, so TikTok's speaker icon matches the real sound. Before, the
+  app toggled the video directly and TikTok kept showing "muted" while sound played. If TikTok's icon is already
+  out of sync it is pressed twice; items without a sound button (LIVE previews in the feed) are toggled directly.
+
 ## [2.2.4]
 ### Fixed
 - Auto scroll getting stuck forever on a video that failed ("We're having trouble playing this video"): TikTok

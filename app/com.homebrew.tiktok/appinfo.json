@@ -1,6 +1,6 @@
 {
   "id": "com.homebrew.tiktok",
-  "version": "2.2.4",
+  "version": "2.2.5",
   "vendor": "aning & Cipher Amir, with the help of Claude",
   "type": "web",
   "main": "index.html",
