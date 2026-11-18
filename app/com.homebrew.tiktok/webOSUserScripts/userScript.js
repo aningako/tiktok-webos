@@ -384,10 +384,22 @@
     if (used) { e.preventDefault(); e.stopPropagation(); }
   }, true);
 
-  /* ---------- skip videos that failed to play ----------
+  /* ---------- videos that failed to play ----------
      When a video fails, TikTok replaces it with "We're having trouble playing this video. Please refresh
      and try again." and removes its player. The video then never ends, so Auto scroll stops there for
-     good. If the item in the middle of the screen shows that error for 4s, go to the next video. */
+     good. If the item in the middle of the screen shows that error for 4s:
+     - on Short dramas: reload the page, which retries the same episode (the URL names the episode), up to
+       2 times per episode; after that, ask for the red button instead of skipping the episode;
+     - elsewhere (For You etc.): go to the next video. */
+  var DRAMA_RETRIES = 2;
+  function isDrama() { return /^\/shortdrama\//.test(location.pathname); }
+  function dramaKey() { return 'tvDramaRetry:' + location.pathname; }
+  function dramaRetries() { try { return parseInt(sessionStorage.getItem(dramaKey()), 10) || 0; } catch (e) { return 0; } }
+  setInterval(function () {                          // episode is playing: forget its retries
+    if (!isDrama()) return;
+    var v = bestVideo();
+    if (v && !v.paused && v.currentTime > 2) { try { sessionStorage.removeItem(dramaKey()); } catch (e) {} }
+  }, 2000);
   var failed = { item: null, since: 0, skipped: null };
   setInterval(function () {
     if (document.hidden || isLive() || openDialog()) return;
@@ -402,6 +414,14 @@
     if (item !== failed.item) { failed.item = item; failed.since = Date.now(); return; }
     if (item === failed.skipped || Date.now() - failed.since < 4000) return;
     failed.skipped = item;
+    if (isDrama()) {
+      var n = dramaRetries();
+      if (n >= DRAMA_RETRIES) { toast('This episode couldn’t play. Press the red button to try again.'); return; }
+      try { sessionStorage.setItem(dramaKey(), String(n + 1)); } catch (e) {}
+      toast('Episode couldn’t play, retrying (' + (n + 1) + '/' + DRAMA_RETRIES + ')…');
+      setTimeout(function () { location.reload(); }, 1500);
+      return;
+    }
     toast('Skipped a video that couldn’t play');
     var next = document.querySelector('button[data-e2e="feed-navigation-next"]');
     if (next && !next.disabled && visible(next)) next.click(); else page(1);

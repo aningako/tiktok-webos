@@ -2,6 +2,12 @@
 
 All notable changes to this project. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+### Changed
+- Short dramas: when an episode shows "We're having trouble playing this video", the app now reloads and retries the
+  same episode (up to 2 times) instead of skipping to the next episode; if it still fails it asks to press the red
+  button. For You and other feeds still skip to the next video. (Needs testing on the TV before release.)
+
 ## [2.2.6]
 ### Fixed
 - Red line along the drama player: the remote's focus outline was also drawn around TikTok's large focusable page
