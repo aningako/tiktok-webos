@@ -92,6 +92,16 @@ and attach the IPK.
 
 In Dev Mode: `ares-inspect -d <tv> --app com.homebrew.tiktok --open` opens Chrome DevTools for the running app.
 
+For scripted debugging there's `tools/cdp.py` (developer tool, not needed to use the app). It evaluates JS in the
+app page, takes screenshots and sends remote keys over the TV's web inspector (port 9998):
+
+```sh
+pip install websocket-client
+TV_HOST=<tv-ip> python3 tools/cdp.py eval 'document.querySelectorAll("video").length'
+TV_HOST=<tv-ip> python3 tools/cdp.py key 40        # remote Down
+TV_HOST=<tv-ip> python3 tools/cdp.py shot out.png  # video area shows blank: webOS draws video on its own plane
+```
+
 ## Credits
 
 Created by **aning** with the help of **Claude** (Anthropic).
