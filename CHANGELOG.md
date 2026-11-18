@@ -2,6 +2,15 @@
 
 All notable changes to this project. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.2.2]
+### Fixed
+- Whole page crashing with "Something went wrong" when switching drama episodes. TikTok's drama player creates a
+  MediaSource without checking for it ("MediaSource is not a constructor"); it now gets the real one, while
+  MediaSource stays hidden from TikTok's feature check so feed/drama videos keep using plain MP4 links.
+### Added
+- Homebrew Channel repository (`repo/apps.json`), so the app can be installed and updated from Homebrew Channel.
+  `scripts/make_repo.py` regenerates it for each release.
+
 ## [2.2.1]
 ### Changed
 - Credits: made for Pie Amolong, to watch AI dramas on an LG TV with TikTok.

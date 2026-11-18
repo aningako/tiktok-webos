@@ -14,36 +14,45 @@
   var HEVC = /hvc1|hev1|hevc|h265|bytevc1/i;
   function isLive() { return /^\/live(\/|$)|^\/@[^/]+\/live/.test(location.pathname); }
   try {
-    var MS = window.MediaSource;
-    // Hide MediaSource outside LIVE pages: TikTok then falls back to progressive MP4 URLs, whose decoders
-    // the watchdog below can free and restore safely (a detached MediaSource can't be re-attached).
-    // LIVE streams (FLV/HLS) need MediaSource, so it is visible there. A getter, so it follows SPA navigation.
-    // It needs a setter too: TikTok assigns window.MediaSource, and a getter-only property makes that throw,
-    // which crashes the video component ("Something went wrong").
-    ['MediaSource', 'ManagedMediaSource', 'WebKitMediaSource'].forEach(function (n) {
+    // Steer TikTok away from MediaSource outside LIVE pages: it then uses progressive MP4 URLs, whose
+    // decoders the watchdog below can free and restore safely (a detached MediaSource can't be re-attached).
+    // Off LIVE pages window.MediaSource reads as undefined, so TikTok's feature check
+    // (`window.MediaSource = window.MediaSource || window.WebKitMediaSource; return e && typeof
+    // e.isTypeSupported == "function"`) picks progressive MP4. Exception: TikTok's drama player calls
+    // `new MediaSource` without any check (in its _createMse/_reallocMse methods); hidden, that crashed the
+    // whole page ("MediaSource is not a constructor", seen in 2.1.0-2.2.1 on a drama episode switch), so
+    // those callers get the real one. (A stand-in without isTypeSupported doesn't work: another component
+    // calls MediaSource.isTypeSupported directly.) The setter accepts TikTok's assignment. LIVE streams
+    // (FLV/HLS) need MediaSource, so LIVE pages get the real one. A getter, so it follows SPA navigation.
+    var MediaSourceReal = window.MediaSource;
+    var MSE_CALLERS = /_createMse|_reallocMse/;
+    ['MediaSource', 'WebKitMediaSource'].forEach(function (n) {
       var orig = window[n];
+      if (!orig) return;
       try {
         Object.defineProperty(window, n, {
-          get: function () { return isLive() ? orig : undefined; },
+          get: function () { return isLive() || MSE_CALLERS.test(new Error().stack || '') ? orig : undefined; },
           set: function (v) { if (v) orig = v; },
           configurable: true
         });
       } catch (e) {}
     });
-    if (MS) {
-      try { Object.defineProperty(MS, 'canConstructInDedicatedWorker', { get: function () { return false; }, configurable: true }); } catch (e) {}
-      if (MS.isTypeSupported) {
-        var origSupported = MS.isTypeSupported.bind(MS);
-        MS.isTypeSupported = function (t) { return HEVC.test(String(t)) ? false : origSupported(t); };
+    (function (RealMS) {
+      if (!RealMS) return;
+      try { Object.defineProperty(RealMS, 'canConstructInDedicatedWorker', { get: function () { return false; }, configurable: true }); } catch (e) {}
+      if (RealMS.isTypeSupported) {
+        var origSupported = RealMS.isTypeSupported.bind(RealMS);
+        RealMS.isTypeSupported = function (t) { return HEVC.test(String(t)) ? false : origSupported(t); };
       }
-    }
+    })(MediaSourceReal);
     var origCanPlay = HTMLMediaElement.prototype.canPlayType;
     HTMLMediaElement.prototype.canPlayType = function (t) { return HEVC.test(String(t)) ? '' : origCanPlay.call(this, t); };
     if (navigator.mediaCapabilities && navigator.mediaCapabilities.decodingInfo) {
       var origDecoding = navigator.mediaCapabilities.decodingInfo.bind(navigator.mediaCapabilities);
       navigator.mediaCapabilities.decodingInfo = function (cfg) {
         var ct = cfg && cfg.video && cfg.video.contentType;
-        if (ct && HEVC.test(ct)) return Promise.resolve({ supported: false, smooth: false, powerEfficient: false });
+        if ((ct && HEVC.test(ct)) || (cfg && cfg.type === 'media-source' && !isLive()))
+          return Promise.resolve({ supported: false, smooth: false, powerEfficient: false });
         return origDecoding(cfg);
       };
     }

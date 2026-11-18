@@ -20,11 +20,25 @@ Captured on a real TV (LG 50UR7550, webOS 10.3.1) with the TV's own screen captu
 
 ## Install
 
+**Homebrew Channel (easiest, also gets updates):** add this app's repository once:
+
+1. Open **Homebrew Channel** → **Settings** (gear icon).
+2. Under **Repositories**, enter this URL and select **Add repository**:
+   ```
+   https://raw.githubusercontent.com/aningako/tiktok-webos/main/repo/apps.json
+   ```
+3. Go back to the app list, open **TikTok (unofficial)** and select **Install**.
+
+New versions then show up in Homebrew Channel like any other app. Works on rooted and non-rooted (Dev Mode) TVs.
+
+**Manual download:** get `com.homebrew.tiktok_<version>_all.ipk` from the
+[latest release](https://github.com/aningako/tiktok-webos/releases/latest).
+
 **Rooted TV (SSH / root shell):** copy the IPK to the TV and install it:
 
 ```sh
-scp releases/com.homebrew.tiktok_2.0.0_all.ipk root@<tv-ip>:/tmp/
-ssh root@<tv-ip> "luna-send -i 'luna://com.webos.appInstallService/dev/install' '{\"id\":\"com.ares.defaultName\",\"ipkUrl\":\"/tmp/com.homebrew.tiktok_2.0.0_all.ipk\",\"subscribe\":true}'"
+scp com.homebrew.tiktok_<version>_all.ipk root@<tv-ip>:/tmp/
+ssh -t root@<tv-ip> "luna-send -i 'luna://com.webos.appInstallService/dev/install' '{\"id\":\"com.ares.defaultName\",\"ipkUrl\":\"/tmp/com.homebrew.tiktok_<version>_all.ipk\",\"subscribe\":true}'"
 ```
 (Press Ctrl+C once it reports `installed`.)
 
@@ -94,8 +108,9 @@ python3 scripts/build_ipk.py   # outputs releases/com.homebrew.tiktok_<version>_
 # or, with the webOS CLI:  npm run build
 ```
 
-Bump the version in `app/com.homebrew.tiktok/appinfo.json` and `package.json`, update `CHANGELOG.md`, then tag a release
-and attach the IPK.
+To release: bump the version in `app/com.homebrew.tiktok/appinfo.json` and `package.json`, update `CHANGELOG.md`, build,
+then run `python3 scripts/make_repo.py` to update the Homebrew Channel repository in `repo/`. Commit, tag `v<version>`,
+and publish a GitHub Release for that tag with the IPK attached (the repository downloads it from there).
 
 ## Debugging
 
