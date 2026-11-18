@@ -337,9 +337,29 @@
     if (used) { e.preventDefault(); e.stopPropagation(); }
   }, true);
 
+  /* ---------- recover from CDN error pages ----------
+     Sometimes tiktok.com's CDN (Akamai) answers the page load with a bare "An error occurred while
+     processing your request. Reference #102..." page; plain reloads can get the same page again, while a
+     load with a cache-busting parameter works. Retry like that, up to 5 times with growing delays. */
+  function recoverFromCdnError() {
+    var t = document.body ? document.body.innerText : '';
+    if (!/errors\.edgesuite\.net|An error occurred while processing your request/.test(t) || document.querySelector('#app, [id^="main-content"]')) return;
+    var n = 0;
+    try { n = parseInt(sessionStorage.getItem('tvCdnRetry'), 10) || 0; sessionStorage.setItem('tvCdnRetry', String(n + 1)); } catch (e) {}
+    if (n >= 5) { toast('TikTok is not responding. Press the red button to try again.'); try { sessionStorage.removeItem('tvCdnRetry'); } catch (e) {} return; }
+    var delay = 3000 * (n + 1);
+    toast('TikTok did not load, retrying in ' + delay / 1000 + 's…');
+    setTimeout(function () {
+      var u = location.pathname + (location.search ? location.search.replace(/([?&])_tvr=\d+&?/, '$1').replace(/[?&]$/, '') : '');
+      location.replace(u + (u.indexOf('?') < 0 ? '?' : '&') + '_tvr=' + Date.now());
+    }, delay);
+  }
+
   function init() {
     (document.head || document.documentElement).appendChild(style);
     applyZoom(false);
+    recoverFromCdnError();
+    if (document.querySelector('#app, [id^="main-content"]')) { try { sessionStorage.removeItem('tvCdnRetry'); } catch (e) {} }
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

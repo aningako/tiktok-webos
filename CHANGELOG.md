@@ -2,6 +2,12 @@
 
 All notable changes to this project. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.2.3]
+### Added
+- Automatic recovery when tiktok.com's CDN answers with a bare "An error occurred while processing your request"
+  (Akamai Reference #102) page: retries with a cache-busting parameter (plain reloads could get the same error),
+  up to 5 times with growing delays, then asks to press the red button.
+
 ## [2.2.2]
 ### Fixed
 - Whole page crashing with "Something went wrong" when switching drama episodes. TikTok's drama player creates a
