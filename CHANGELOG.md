@@ -2,6 +2,14 @@
 
 All notable changes to this project. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.2.1]
+### Changed
+- Credits: made for Pie Amolong, to watch AI dramas on an LG TV with TikTok.
+### Notes
+- Tested swapping TikTok's `v*-webapp-prime` video links for its `www.tiktok.com/aweme/v1/play` link (it avoids the
+  decode errors and stalls on those servers), but videos still took 18-27s to start unless preloaded, so it wasn't
+  shipped. The main limit on the test TV (50UR7550, 4 cores, 1.2 GB RAM) is CPU/memory load from TikTok's desktop site.
+
 ## [2.2.0]
 ### Added
 - LIVE: the "Go LIVE and own the moment" promo that covered the player is closed automatically, and remote

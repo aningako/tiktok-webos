@@ -4,6 +4,7 @@ Unofficial TikTok app for LG webOS TVs. It opens the real TikTok **desktop** sit
 and webOS injects a small script that adds remote-control mappings, zoom and playback fixes for a 10-foot UI.
 
 **Created by aning and Cipher Amir with the help of Claude** (Anthropic's AI assistant).
+Made for **Pie Amolong**, to watch AI dramas on an LG TV with TikTok.
 
 Works on **rooted and non-rooted** TVs: no background service, no root access needed.
 
@@ -113,6 +114,8 @@ TV_HOST=<tv-ip> python3 tools/cdp.py shot out.png  # video area shows blank: web
 ## Credits
 
 Created by **aning** and **Cipher Amir** with the help of **Claude** (Anthropic).
+
+Made for **Pie Amolong**, to watch AI dramas on an LG TV with TikTok.
 
 ## License
 MIT

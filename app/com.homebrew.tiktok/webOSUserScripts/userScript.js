@@ -1,7 +1,8 @@
 /* Injected by webOS WebAppManager into every page this app loads (including https://www.tiktok.com).
    TV remote-control mappings, zoom and exit handling for the TikTok desktop site.
    Plain ES5 so it runs on older webOS versions too.
-   Created by aning and Cipher Amir with the help of Claude (Anthropic). MIT license. */
+   Created by aning and Cipher Amir with the help of Claude (Anthropic). MIT license.
+   Made for Pie Amolong, to watch AI dramas on an LG TV with TikTok. */
 (function () {
   if (window.top !== window) return;               // not inside captcha/login iframes
   if (window.__tvInjected) return; window.__tvInjected = true;
