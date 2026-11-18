@@ -3,7 +3,7 @@
 Unofficial TikTok app for LG webOS TVs. It opens the real TikTok **desktop** site (`https://www.tiktok.com`) full-screen,
 and webOS injects a small script that adds remote-control mappings, zoom and playback fixes for a 10-foot UI.
 
-**Created by aning with the help of Claude** (Anthropic's AI assistant).
+**Created by aning and Cipher Amir with the help of Claude** (Anthropic's AI assistant).
 
 Works on **rooted and non-rooted** TVs: no background service, no root access needed.
 
@@ -104,7 +104,7 @@ TV_HOST=<tv-ip> python3 tools/cdp.py shot out.png  # video area shows blank: web
 
 ## Credits
 
-Created by **aning** with the help of **Claude** (Anthropic).
+Created by **aning** and **Cipher Amir** with the help of **Claude** (Anthropic).
 
 ## License
 MIT

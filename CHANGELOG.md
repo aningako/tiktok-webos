@@ -2,6 +2,13 @@
 
 All notable changes to this project. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.1.1]
+### Fixed
+- Pause other videos the moment one starts playing, and free decoders when the watched video hits a decode
+  error, to reduce "Something went wrong" when switching videos/episodes (still being worked on).
+### Changed
+- Credits: created by aning and Cipher Amir with the help of Claude.
+
 ## [2.1.0]
 ### Fixed
 - Videos freezing at 0:00. Cause: the TV has very few hardware video decoders and TikTok's off-screen

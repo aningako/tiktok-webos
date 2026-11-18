@@ -10,7 +10,7 @@ and `pip install websocket-client`. Set the TV's address with TV_HOST (or --tv):
                                                                        webOS draws it on a separate plane)
   python3 tools/cdp.py --tv <tv-ip> key 40 40 13                (send remote keys: 37-40 arrows, 13 OK)
 
-Created by aning with the help of Claude (Anthropic). MIT license.
+Created by aning and Cipher Amir with the help of Claude (Anthropic). MIT license.
 """
 import base64, json, os, sys, urllib.request
 import websocket

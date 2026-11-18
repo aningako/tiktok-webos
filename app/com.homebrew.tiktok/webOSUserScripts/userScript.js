@@ -1,7 +1,7 @@
 /* Injected by webOS WebAppManager into every page this app loads (including https://www.tiktok.com).
    TV remote-control mappings, zoom and exit handling for the TikTok desktop site.
    Plain ES5 so it runs on older webOS versions too.
-   Created by aning with the help of Claude (Anthropic). MIT license. */
+   Created by aning and Cipher Amir with the help of Claude (Anthropic). MIT license. */
 (function () {
   if (window.top !== window) return;               // not inside captcha/login iframes
   if (window.__tvInjected) return; window.__tvInjected = true;
@@ -160,14 +160,26 @@
      - pause off-screen videos,
      - play the centred video unless the user paused it (OK button, or a pointer click just before the pause),
      - if it is meant to play and has data buffered ahead but no new frames have rendered for 1.5s,
-       release the decoders held by already-watched <video> elements above the screen (unload them);
-       if it is still stuck 2s later, nudge currentTime once just past the start of the buffered range. */
+       release the decoders held by the other <video> elements (unload them, see releaseOthers);
+       if it is still stuck 2s later, nudge currentTime once just past the start of the buffered range.
+     Switching videos/episodes is handled immediately by the play/error listeners below: the 700ms tick is
+     too slow, and the new video fails with a decode error (MEDIA_ERR_DECODE, shown by TikTok as
+     "Something went wrong") while the previous one still holds the decoder. */
   var lastClick = 0;
   addEventListener('mousedown', function () { lastClick = Date.now(); }, true);
   document.addEventListener('pause', function (e) {
     if (Date.now() - lastClick < 1500 && e.target === bestVideo()) e.target.__tvUserPaused = true;
   }, true);
-  document.addEventListener('play', function (e) { e.target.__tvUserPaused = false; }, true);
+  document.addEventListener('play', function (e) {
+    var v = e.target, vs = document.querySelectorAll('video');
+    v.__tvUserPaused = false;
+    for (var i = 0; i < vs.length; i++) if (vs[i] !== v && !vs[i].paused) vs[i].pause();
+  }, true);
+  // Decode error on the video being watched: free every other decoder so TikTok's own retry can get one.
+  document.addEventListener('error', function (e) {
+    var v = e.target;
+    if (v && v.tagName === 'VIDEO' && v.error && v.error.code === 3 && v === bestVideo()) releaseOthers(v);
+  }, true);
   var wd = { v: null, src: '', mark: -1, since: 0, step: 0 };
   function progress(v) {             // rendered frames when available (audio can advance currentTime alone)
     var q = v.getVideoPlaybackQuality && v.getVideoPlaybackQuality();
