@@ -11,12 +11,23 @@
      only, while main-thread MSE and progressive MP4 play fine. Reporting that MediaSource can't be built
      in a worker makes TikTok use main-thread playback. HEVC is hidden too so it picks H.264 renditions. */
   var HEVC = /hvc1|hev1|hevc|h265|bytevc1/i;
+  function isLive() { return /^\/live(\/|$)|^\/@[^/]+\/live/.test(location.pathname); }
   try {
     var MS = window.MediaSource;
-    // Hide MediaSource entirely: TikTok then falls back to progressive MP4 URLs, whose decoders the
-    // watchdog below can free and restore safely (a detached MediaSource can't be re-attached).
+    // Hide MediaSource outside LIVE pages: TikTok then falls back to progressive MP4 URLs, whose decoders
+    // the watchdog below can free and restore safely (a detached MediaSource can't be re-attached).
+    // LIVE streams (FLV/HLS) need MediaSource, so it is visible there. A getter, so it follows SPA navigation.
+    // It needs a setter too: TikTok assigns window.MediaSource, and a getter-only property makes that throw,
+    // which crashes the video component ("Something went wrong").
     ['MediaSource', 'ManagedMediaSource', 'WebKitMediaSource'].forEach(function (n) {
-      try { Object.defineProperty(window, n, { value: undefined, configurable: true }); } catch (e) {}
+      var orig = window[n];
+      try {
+        Object.defineProperty(window, n, {
+          get: function () { return isLive() ? orig : undefined; },
+          set: function (v) { if (v) orig = v; },
+          configurable: true
+        });
+      } catch (e) {}
     });
     if (MS) {
       try { Object.defineProperty(MS, 'canConstructInDedicatedWorker', { get: function () { return false; }, configurable: true }); } catch (e) {}
@@ -132,7 +143,29 @@
     ':focus-visible,.tv-focus:focus{outline:4px solid #fe2c55 !important;outline-offset:2px}';
 
   /* ---------- feed actions ---------- */
+  /* ---------- LIVE page ----------
+     The Discover LIVE hero carousel uses plain clickable <div>s (no button role/label) for its up/down
+     arrows and for the "Go LIVE and own the moment" promo, which covers the player and blocks the remote. */
+  function liveArrows() {
+    var cs = document.querySelectorAll('div.pointer-events-none.absolute');
+    for (var i = 0; i < cs.length; i++) {
+      var l = cs[i].querySelectorAll('div.pointer-events-auto');
+      if (l.length === 2 && visible(l[0])) return l;
+    }
+    return null;
+  }
+  setInterval(function () {
+    if (!isLive() || document.hidden) return;
+    var ds = document.querySelectorAll('div.cursor-pointer');
+    for (var i = 0; i < ds.length; i++) {
+      if ((ds[i].innerText || '').trim() !== 'Next time' || !visible(ds[i])) continue;
+      var box = ds[i].parentElement && ds[i].parentElement.parentElement;
+      if (box && /Go LIVE/.test(box.innerText)) { ds[i].click(); break; }
+    }
+  }, 1000);
+
   function page(dir) {
+    if (isLive()) { var la = liveArrows(); if (la) { la[dir > 0 ? 1 : 0].click(); return; } }
     // Let TikTok's own (trusted) arrow handling run first; scroll only if nothing moved.
     var v = bestVideo(), src = v && v.currentSrc, sc = scrollable(v || document.body), before = sc.scrollTop;
     setTimeout(function () {
@@ -278,8 +311,8 @@
       else used = false;
     } else {
       switch (k) {
-        case KEY.UP: page(-1); used = false; break;          // let TikTok see the real arrow key too
-        case KEY.DOWN: page(1); used = false; break;
+        case KEY.UP: page(-1); used = isLive() && !!liveArrows(); break;  // else let TikTok see the real key too
+        case KEY.DOWN: page(1); used = isLive() && !!liveArrows(); break;
         case KEY.OK: if (onControl) used = false; else togglePlay(); break;
         case KEY.RIGHT: like(); break;
         case KEY.LEFT: toggleMute(); break;

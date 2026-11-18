@@ -9,6 +9,14 @@ Works on **rooted and non-rooted** TVs: no background service, no root access ne
 
 > Not affiliated with or endorsed by TikTok / ByteDance or LG. Use at your own risk. TikTok may change its site at any time and break this app.
 
+## Screenshots
+
+Captured on a real TV (LG 50UR7550, webOS 10.3.1) with the TV's own screen capture.
+
+| For You feed | LIVE |
+|---|---|
+| ![For You feed playing on an LG TV](docs/screenshots/for-you.png) | ![A LIVE stream playing on an LG TV](docs/screenshots/live.png) |
+
 ## Install
 
 **Rooted TV (SSH / root shell):** copy the IPK to the TV and install it:
@@ -39,7 +47,7 @@ that may not work inside a TV app.
 
 | Button | Action |
 |---|---|
-| Up / Down | Previous / next video |
+| Up / Down | Previous / next video (on LIVE: previous / next stream) |
 | OK | Play / pause (or activate the focused button) |
 | Right | Like |
 | Left | Mute / unmute |

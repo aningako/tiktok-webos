@@ -2,6 +2,20 @@
 
 All notable changes to this project. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.2.0]
+### Added
+- LIVE: the "Go LIVE and own the moment" promo that covered the player is closed automatically, and remote
+  Up / Down switch to the previous / next stream.
+- README screenshots captured on a real TV.
+### Fixed
+- LIVE streams didn't play: they need MediaSource, which 2.1.0 hid. MediaSource is now hidden everywhere except
+  LIVE pages (follows in-app navigation).
+- "Something went wrong" cards in the feed: TikTok assigns `window.MediaSource`, which crashed its video component
+  when the property had no setter.
+### Known issues
+- Feed and drama videos can take 15–20s to start: TikTok first tries its `v*-webapp-prime` video servers, which stall
+  on the test TV, before falling back to `www.tiktok.com/aweme/v1/play`, which plays at once. Being worked on.
+
 ## [2.1.1]
 ### Fixed
 - Pause other videos the moment one starts playing, and free decoders when the watched video hits a decode
