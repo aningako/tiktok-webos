@@ -2,6 +2,12 @@
 
 All notable changes to this project. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.2.6]
+### Fixed
+- Red line along the drama player: the remote's focus outline was also drawn around TikTok's large focusable page
+  areas. It is now only drawn on real controls (buttons, links, inputs, tabs) and on what the remote's arrows select
+  in dialogs, and never on elements larger than 600x400.
+
 ## [2.2.5]
 ### Fixed
 - Left (mute) now presses TikTok's own sound button, so TikTok's speaker icon matches the real sound. Before, the

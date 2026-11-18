@@ -141,6 +141,8 @@
     var idx = list.indexOf(document.activeElement);
     var next = list[idx < 0 ? (dir > 0 ? 0 : list.length - 1) : Math.max(0, Math.min(list.length - 1, idx + dir))];
     if (!next.hasAttribute('tabindex') && !/^(A|BUTTON|INPUT|SELECT|TEXTAREA)$/.test(next.tagName)) next.setAttribute('tabindex', '0');
+    var prev = document.querySelector('.tv-focus'); if (prev) prev.classList.remove('tv-focus');
+    next.classList.add('tv-focus');                  // outlined while focused, see style below
     next.focus();
     if (next.scrollIntoView) next.scrollIntoView({ block: 'nearest' });
   }
@@ -149,8 +151,19 @@
     if (btn) btn.click(); else sendKey('Escape', 'Escape', 27, d);
   }
   var style = document.createElement('style');
+  // Focus ring only on real controls and on what the remote's arrows selected in dialogs (.tv-focus).
+  // A bare :focus-visible also outlined TikTok's big focusable page areas (e.g. a red line along the drama player).
   style.textContent = '::-webkit-scrollbar{display:none}' +
-    ':focus-visible,.tv-focus:focus{outline:4px solid #fe2c55 !important;outline-offset:2px}';
+    'a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,' +
+    '[role="button"]:focus-visible,[role="link"]:focus-visible,[role="tab"]:focus-visible,[role="option"]:focus-visible,' +
+    '.tv-focus:focus{outline:4px solid #fe2c55 !important;outline-offset:2px}' +
+    '.tv-nofocus:focus{outline:none !important}';
+  // ...and never on large page areas, whatever their role.
+  addEventListener('focusin', function (e) {
+    var t = e.target; if (!t || !t.getBoundingClientRect) return;
+    var r = t.getBoundingClientRect();
+    if (r.width > 600 && r.height > 400) t.classList.add('tv-nofocus');
+  }, true);
 
   /* ---------- feed actions ---------- */
   /* ---------- LIVE page ----------
