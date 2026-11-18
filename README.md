@@ -62,9 +62,13 @@ The Magic Remote pointer works for clicking and scrolling everywhere.
 
 ## Known issues
 
-- **Video playback (work in progress):** tested on a 50UR7550 (webOS 10.3.1 "TV Lite"). The feed and login work, but
-  videos TikTok streams through its worker MediaSource pipeline can stall at 0:00, while plain MP4 videos play.
-  Workarounds are being tested. Close other video apps (e.g. YouTube) before testing so they don't hold the decoder.
+- **Performance on low-end TVs:** tested on a 50UR7550 (webOS 10.3.1 "TV Lite", 4 cores, 1.2 GB RAM). TikTok's
+  desktop site keeps that TV's CPU busy, so the first videos after launch can take 10–15s to start and the remote
+  can lag a few seconds after each press. Close other apps (especially YouTube) so they don't hold memory or a
+  video decoder.
+- **Video playback:** these TVs have very few hardware video decoders, and TikTok keeps off-screen videos loaded.
+  Since 2.1.0 the script makes TikTok use plain MP4s and frees the off-screen videos' decoders when the on-screen
+  one stalls (see `userScript.js`).
 
 ### Why not a proxy anymore (1.x → 2.0)
 

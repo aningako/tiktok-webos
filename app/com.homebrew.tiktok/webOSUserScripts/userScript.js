@@ -1,6 +1,7 @@
 /* Injected by webOS WebAppManager into every page this app loads (including https://www.tiktok.com).
    TV remote-control mappings, zoom and exit handling for the TikTok desktop site.
-   Plain ES5 so it runs on older webOS versions too. */
+   Plain ES5 so it runs on older webOS versions too.
+   Created by aning with the help of Claude (Anthropic). MIT license. */
 (function () {
   if (window.top !== window) return;               // not inside captcha/login iframes
   if (window.__tvInjected) return; window.__tvInjected = true;
@@ -12,6 +13,11 @@
   var HEVC = /hvc1|hev1|hevc|h265|bytevc1/i;
   try {
     var MS = window.MediaSource;
+    // Hide MediaSource entirely: TikTok then falls back to progressive MP4 URLs, whose decoders the
+    // watchdog below can free and restore safely (a detached MediaSource can't be re-attached).
+    ['MediaSource', 'ManagedMediaSource', 'WebKitMediaSource'].forEach(function (n) {
+      try { Object.defineProperty(window, n, { value: undefined, configurable: true }); } catch (e) {}
+    });
     if (MS) {
       try { Object.defineProperty(MS, 'canConstructInDedicatedWorker', { get: function () { return false; }, configurable: true }); } catch (e) {}
       if (MS.isTypeSupported) {
@@ -145,22 +151,70 @@
     else { v.__tvUserPaused = true; v.pause(); toast('❚❚'); }
   }
 
-  /* ---------- autoplay keeper ----------
-     On webOS TikTok often leaves the next video paused at 0:00 after scrolling, and paused/preloaded
-     videos off-screen hold the TV's limited hardware decoders. Keep the centred video playing and pause
-     the rest, unless the user paused it (OK button, or a pointer click just before the pause). */
+  /* ---------- autoplay keeper + stall watchdog ----------
+     On webOS TikTok often leaves the on-screen video paused at 0:00, and its MSE videos get stuck
+     "seeking" at ~0.07s (the start of the buffered range) even though the whole clip is buffered:
+     no frames render. Cause (verified on a 50UR7550): the TV has very few hardware video decoders and
+     TikTok's off-screen <video> elements (previous video, preloaded next one) keep holding them even
+     while paused. Every 700ms:
+     - pause off-screen videos,
+     - play the centred video unless the user paused it (OK button, or a pointer click just before the pause),
+     - if it is meant to play and has data buffered ahead but no new frames have rendered for 1.5s,
+       release the decoders held by already-watched <video> elements above the screen (unload them);
+       if it is still stuck 2s later, nudge currentTime once just past the start of the buffered range. */
   var lastClick = 0;
   addEventListener('mousedown', function () { lastClick = Date.now(); }, true);
   document.addEventListener('pause', function (e) {
     if (Date.now() - lastClick < 1500 && e.target === bestVideo()) e.target.__tvUserPaused = true;
   }, true);
   document.addEventListener('play', function (e) { e.target.__tvUserPaused = false; }, true);
+  var wd = { v: null, src: '', mark: -1, since: 0, step: 0 };
+  function progress(v) {             // rendered frames when available (audio can advance currentTime alone)
+    var q = v.getVideoPlaybackQuality && v.getVideoPlaybackQuality();
+    return q ? q.totalVideoFrames + v.currentTime / 1000 : v.currentTime;
+  }
+  function hasDataAhead(v) {
+    var b = v.buffered;
+    return v.readyState >= 1 && b.length > 0 && b.end(b.length - 1) > v.currentTime + 0.5;
+  }
+  // Unload other videos to free their decoders, remembering plain-URL sources so restore() can put them
+  // back when the element comes on screen (TikTok reuses <video> elements and won't re-attach a source
+  // itself). blob: (MediaSource) sources can't be re-attached, so those are only released once they are
+  // fully above the screen (already watched).
+  function releaseOthers(cur) {
+    var vs = document.querySelectorAll('video');
+    for (var i = 0; i < vs.length; i++) {
+      var v = vs[i], s = v.getAttribute('src');
+      if (v === cur || !s) continue;
+      var blob = s.indexOf('blob:') === 0;
+      if (blob && v.getBoundingClientRect().bottom > 0) continue;
+      try { if (!blob) { v.__tvSrc = s; v.__tvTime = v.currentTime; } v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {}
+    }
+  }
+  function restore(v) {
+    if (!v.__tvSrc || v.getAttribute('src')) return;
+    var t = v.__tvTime || 0; v.src = v.__tvSrc; v.__tvSrc = null;
+    if (t > 0) v.addEventListener('loadedmetadata', function () { try { v.currentTime = t; } catch (e) {} }, { once: true });
+  }
   setInterval(function () {
     if (document.hidden) return;
-    var cur = bestVideo(), vs = document.querySelectorAll('video');
-    for (var i = 0; i < vs.length; i++) if (vs[i] !== cur && !vs[i].paused) vs[i].pause();
-    if (cur && cur.paused && !cur.__tvUserPaused && !cur.ended && cur.readyState >= 2 && !openDialog()) safePlay(cur);
-  }, 800);
+    var v = bestVideo(), now = Date.now(), vs = document.querySelectorAll('video');
+    for (var i = 0; i < vs.length; i++) if (vs[i] !== v && !vs[i].paused) vs[i].pause();
+    if (v) restore(v);
+    if (!v || v.ended || v.__tvUserPaused || openDialog()) { wd.v = null; return; }
+    if (v.paused) safePlay(v);
+    var p = progress(v);
+    if (v !== wd.v || v.currentSrc !== wd.src) { wd = { v: v, src: v.currentSrc, mark: p, since: now, step: 0 }; return; }
+    if (p !== wd.mark || !hasDataAhead(v)) { wd.mark = p; wd.since = now; return; }   // progressing, or still loading
+    if (wd.step === 0 && now - wd.since >= 1500) {
+      wd.step = 1; wd.since = now; releaseOthers(v); safePlay(v);
+    } else if (wd.step === 1 && now - wd.since >= 2000 && v.buffered.length) {
+      wd.step = 2;
+      var s = v.buffered.start(0), e = v.buffered.end(v.buffered.length - 1);
+      if (e > v.currentTime + 0.5 && v.currentTime < s + 0.3) { try { v.currentTime = s + 0.2; } catch (x) {} safePlay(v); }
+    }
+  }, 700);
+
   function toggleMute() {
     var v = bestVideo(); if (!v) return;
     v.muted = !v.muted; if (!v.muted && v.volume === 0) v.volume = 1;

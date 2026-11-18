@@ -62,8 +62,8 @@ def main():
 
     data_tgz = tar_gz([(d, None, 0o755) for d in dirs] + files)
     control = ('Package: %s\nVersion: %s\nSection: misc\nPriority: optional\nArchitecture: all\n'
-               'Installed-Size: %d\nMaintainer: N/A <nobody@example.com>\n'
-               'Description: This is a webOS application.\nwebOS-Package-Format-Version: 2\n'
+               'Installed-Size: %d\nMaintainer: aning <aningako@users.noreply.github.com>\n'
+               'Description: Unofficial TikTok for LG webOS. Created by aning with the help of Claude (Anthropic).\nwebOS-Package-Format-Version: 2\n'
                'webOS-Packager-Version: x.y.x\n') % (app_id, version, size)
     control_tgz = tar_gz([('control', control.encode(), 0o644)])
 

@@ -2,6 +2,22 @@
 
 All notable changes to this project. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.1.0]
+### Fixed
+- Videos freezing at 0:00. Cause: the TV has very few hardware video decoders and TikTok's off-screen
+  `<video>` elements (previous video, preloaded next one) keep holding them even while paused.
+### Changed
+- MediaSource is hidden from the page, so TikTok plays progressive MP4 URLs instead of MSE streams.
+  Those can be unloaded to free a decoder and restored when scrolled back to (a detached MediaSource can't).
+- Autoplay keeper is back (it was briefly removed while testing). It now also resumes videos that have
+  only metadata loaded.
+### Added
+- Stall watchdog: if the on-screen video has data buffered but isn't progressing for 1.5s, other videos are
+  unloaded to free their decoders and restored automatically when they come back on screen.
+### Known issues
+- On low-memory "TV Lite" models (50UR7550: 4 cores, 1.2 GB RAM) the desktop site keeps the CPU busy, so the
+  first videos after launch can take 10–15s to start and the remote can lag a few seconds after each press.
+
 ## [2.0.0]
 ### Changed
 - Removed the local proxy service. The app now loads the real `https://www.tiktok.com` directly. This fixes slow
