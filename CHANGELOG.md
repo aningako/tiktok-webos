@@ -2,6 +2,12 @@
 
 All notable changes to this project. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.2.4]
+### Fixed
+- Auto scroll getting stuck forever on a video that failed ("We're having trouble playing this video"): TikTok
+  removes the failed video's player, so it never ends and Auto scroll never moves on. If the video on screen
+  shows that error for 4s, the app now skips to the next video (once per failed video).
+
 ## [2.2.3]
 ### Added
 - Automatic recovery when tiktok.com's CDN answers with a bare "An error occurred while processing your request"

@@ -337,6 +337,29 @@
     if (used) { e.preventDefault(); e.stopPropagation(); }
   }, true);
 
+  /* ---------- skip videos that failed to play ----------
+     When a video fails, TikTok replaces it with "We're having trouble playing this video. Please refresh
+     and try again." and removes its player. The video then never ends, so Auto scroll stops there for
+     good. If the item in the middle of the screen shows that error for 4s, go to the next video. */
+  var failed = { item: null, since: 0, skipped: null };
+  setInterval(function () {
+    if (document.hidden || isLive() || openDialog()) return;
+    var ps = document.querySelectorAll('p[class*="ErrorText"]'), item = null;
+    for (var i = 0; i < ps.length; i++) {
+      var r = ps[i].getBoundingClientRect();
+      if (r.width && r.top > innerHeight * 0.2 && r.bottom < innerHeight * 0.8 && /trouble playing/i.test(ps[i].textContent)) {
+        item = ps[i].closest('[data-e2e="recommend-list-item-container"], article') || ps[i]; break;
+      }
+    }
+    if (!item) { failed.item = null; return; }
+    if (item !== failed.item) { failed.item = item; failed.since = Date.now(); return; }
+    if (item === failed.skipped || Date.now() - failed.since < 4000) return;
+    failed.skipped = item;
+    toast('Skipped a video that couldn’t play');
+    var next = document.querySelector('button[data-e2e="feed-navigation-next"]');
+    if (next && !next.disabled && visible(next)) next.click(); else page(1);
+  }, 1000);
+
   /* ---------- recover from CDN error pages ----------
      Sometimes tiktok.com's CDN (Akamai) answers the page load with a bare "An error occurred while
      processing your request. Reference #102..." page; plain reloads can get the same page again, while a
