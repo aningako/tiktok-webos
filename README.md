@@ -1,55 +1,96 @@
 # TikTok for LG webOS (homebrew)
 
-Unofficial TikTok launcher for LG webOS TVs. It runs a tiny local proxy service on the TV that serves the
-TikTok **desktop** site full-screen, with remote-control mappings and adjustable zoom for a 10-foot UI.
+Unofficial TikTok app for LG webOS TVs. It opens the real TikTok **desktop** site (`https://www.tiktok.com`) full-screen,
+and webOS injects a small script that adds remote-control mappings, zoom and playback fixes for a 10-foot UI.
+
+**Created by aning with the help of Claude** (Anthropic's AI assistant).
+
+Works on **rooted and non-rooted** TVs: no background service, no root access needed.
 
 > Not affiliated with or endorsed by TikTok / ByteDance or LG. Use at your own risk. TikTok may change its site at any time and break this app.
 
 ## Install
 
-Requirements: LG TV with [Developer Mode](https://webostv.developer.lge.com/develop/getting-started/developer-mode-app) on, and the webOS CLI (`npm i -g @webos-tools/cli`).
+**Rooted TV (SSH / root shell):** copy the IPK to the TV and install it:
+
+```sh
+scp releases/com.homebrew.tiktok_2.0.0_all.ipk root@<tv-ip>:/tmp/
+ssh root@<tv-ip> "luna-send -i 'luna://com.webos.appInstallService/dev/install' '{\"id\":\"com.ares.defaultName\",\"ipkUrl\":\"/tmp/com.homebrew.tiktok_2.0.0_all.ipk\",\"subscribe\":true}'"
+```
+(Press Ctrl+C once it reports `installed`.)
+
+**webOS CLI (Dev Mode):**
 
 ```sh
 ares-setup-device                      # add your TV once
 ares-install -d <tv> releases/com.homebrew.tiktok_<version>_all.ipk
 ares-launch  -d <tv> com.homebrew.tiktok
 ```
-Download the IPK from the [Releases](../../releases) page.
+
+Upgrading from 1.x: uninstall the old version first. 1.x included a proxy service that 2.x no longer uses.
+
+## Logging in
+
+Use **"Use QR code"** in the login dialog and scan it with the TikTok app on your phone. That's the most reliable method
+on a TV. Email/phone + password also works with the on-screen keyboard. Google/Apple/Facebook sign-in opens pop-ups
+that may not work inside a TV app.
 
 ## Remote controls
 
 | Button | Action |
 |---|---|
 | Up / Down | Previous / next video |
-| OK | Play / pause |
-| Right | Like (`L` shortcut) |
+| OK | Play / pause (or activate the focused button) |
+| Right | Like |
 | Left | Mute / unmute |
-| Channel Up / Down | Zoom in / out (default 125%) |
+| Channel Up / Down | Zoom in / out (50–200%, saved) |
 | Red / Green / Yellow / Blue | Reload / For You / Following / Explore |
-| Back | Go back, or exit |
+| Back | Close dialog → go back → exit |
 
-The Magic Remote pointer works for clicking and scrolling.
+When a dialog (login, comments…) is open, the arrow keys move focus between its buttons and fields, and OK clicks.
+The Magic Remote pointer works for clicking and scrolling everywhere.
 
 ## How it works
 
-- `app/com.homebrew.tiktok/` – web app. Starts the service via Luna, waits for it, then opens the local page.
-- `services/com.homebrew.tiktok.proxy/` – Node.js service (no dependencies, plain ES5/ES2015).
-  - `proxy-service.js` – reverse proxy on `127.0.0.1:8765`; desktop Chrome UA, strips `X-Frame-Options`/CSP,
-    rewrites TikTok hostnames so all traffic stays same-origin, injects `inject.js`.
-  - `shell.html` – full-screen iframe with zoom handling.
-  - `inject.js` – remote-key handling inside the page.
+- `app/com.homebrew.tiktok/index.html` redirects to `https://www.tiktok.com/foryou`.
+- `appinfo.json` sets `resolution: 1280x720`: the site renders at 1280×720 and the TV scales it up (about 150%),
+  which gives readable text without breaking the layout. The stock webOS user-agent is used; TikTok serves the full
+  desktop site to it, and request signing stays consistent because the page runs on the real origin.
+- `app/com.homebrew.tiktok/webOSUserScripts/userScript.js` is injected by webOS WebAppManager into every page the app
+  loads, the same mechanism [youtube-webos](https://github.com/webosbrew/youtube-webos) uses. It handles remote keys,
+  zoom, an autoplay keeper, and playback workarounds (H.264 instead of HEVC, no MediaSource-in-Worker).
 
-Limitations: WebSockets aren't proxied; TikTok API signing/bot checks may break features; old webOS versions
-may not run TikTok's current JS. The Node.js version on the TV is older than on a dev PC (see LG's docs).
+## Known issues
+
+- **Video playback (work in progress):** tested on a 50UR7550 (webOS 10.3.1 "TV Lite"). The feed and login work, but
+  videos TikTok streams through its worker MediaSource pipeline can stall at 0:00, while plain MP4 videos play.
+  Workarounds are being tested. Close other video apps (e.g. YouTube) before testing so they don't hold the decoder.
+
+### Why not a proxy anymore (1.x → 2.0)
+
+1.x ran a Node.js reverse proxy on `127.0.0.1` that rewrote TikTok's pages. That made loading very slow (no
+compression or connection reuse, multi-MB JS bundles rewritten on the TV CPU). It also broke the For You feed and
+login: TikTok signs its API calls in the browser using the page origin and `navigator.userAgent`, and those didn't
+match what the proxy sent, so the feed API returned nothing after the first few server-rendered videos. Login cookies
+and the captcha also expect the real `tiktok.com` origin.
 
 ## Build
 
 ```sh
-npm i -g @webos-tools/cli
-npm run build        # outputs releases/com.homebrew.tiktok_<version>_all.ipk
-npm run dev:proxy    # run the proxy on your PC, open http://127.0.0.1:8765/__shell
+python3 scripts/build_ipk.py   # outputs releases/com.homebrew.tiktok_<version>_all.ipk (no SDK needed)
+# or, with the webOS CLI:  npm run build
 ```
-Bump the version in `app/com.homebrew.tiktok/appinfo.json` and `package.json`, update `CHANGELOG.md`, then tag a release and attach the IPK.
+
+Bump the version in `app/com.homebrew.tiktok/appinfo.json` and `package.json`, update `CHANGELOG.md`, then tag a release
+and attach the IPK.
+
+## Debugging
+
+In Dev Mode: `ares-inspect -d <tv> --app com.homebrew.tiktok --open` opens Chrome DevTools for the running app.
+
+## Credits
+
+Created by **aning** with the help of **Claude** (Anthropic).
 
 ## License
 MIT

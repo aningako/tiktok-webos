@@ -1,14 +1,15 @@
 {
   "id": "com.homebrew.tiktok",
-  "version": "1.4.0",
-  "vendor": "Homebrew",
+  "version": "2.0.0",
+  "vendor": "aning (built with Claude)",
   "type": "web",
   "main": "index.html",
   "title": "TikTok",
   "icon": "icon.png",
   "largeIcon": "largeIcon.png",
   "bgColor": "#000000",
-  "resolution": "1920x1080",
+  "iconColor": "#000000",
+  "resolution": "1280x720",
   "disableBackHistoryAPI": true,
-  "requiredPermissions": ["time.query"]
+  "handlesRelaunch": true
 }

@@ -1,10 +1,10 @@
 {
   "name": "tiktok-webos",
-  "version": "1.4.0",
-  "description": "Unofficial TikTok (desktop site) launcher for LG webOS TVs, homebrew IPK",
+  "version": "2.0.0",
+  "description": "Unofficial TikTok (desktop site) app for LG webOS TVs, homebrew IPK",
   "license": "MIT",
   "scripts": {
-    "build": "ares-package app/com.homebrew.tiktok services/com.homebrew.tiktok.proxy -o releases",
-    "dev:proxy": "node services/com.homebrew.tiktok.proxy/proxy-service.js"
-  }
+    "build": "ares-package app/com.homebrew.tiktok -o releases"
+  },
+  "author": "aning (built with the help of Claude by Anthropic)"
 }
