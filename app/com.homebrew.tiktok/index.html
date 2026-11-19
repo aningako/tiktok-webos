@@ -7,9 +7,9 @@ h1{font-size:48px;margin:0 0 16px}#s{font-size:22px;opacity:.7;max-width:900px}#
 <h1>TikTok</h1><div id="s">Loading…</div>
 <div id="c">Created by aning and Cipher Amir with the help of Claude · Made for Pie Amolong</div>
 <script>
-/* Navigate straight to the real site. The remote-control script in
-   webOSUserScripts/userScript.js is injected by webOS into every page of this app. */
-var TARGET = 'https://www.tiktok.com/foryou', s = document.getElementById('s');
+/* Start in TV mode: the app's own light player, which runs on a bare tiktok.com page (see tvMode in
+   webOSUserScripts/userScript.js, which webOS injects into every page of this app). */
+var TARGET = 'https://www.tiktok.com/robots.txt?tv=1', s = document.getElementById('s');
 function go() {
   if (navigator.onLine === false) {
     s.textContent = 'No internet connection. Retrying…';

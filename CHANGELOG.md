@@ -2,6 +2,31 @@
 
 All notable changes to this project. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.5.0]
+### Added
+- **TV mode**, the app's new home screen: a light player of its own instead of TikTok's heavy desktop site.
+  It runs on a bare tiktok.com page with only TikTok's request-signing script, gets lists from TikTok's web API
+  and plays them in one plain video player. On the 50UR7550: next episode / video in about 1.5-2.5s (the website
+  took 7-13s), the page uses ~2% CPU while playing (35-98% before), home screen ready ~7s after launch.
+  - Continue watching (TikTok's drama watch history plus progress kept on the TV, resumes where you stopped),
+    Popular short dramas, For You.
+  - Drama page with Play/Continue and an episode grid. In the player: Up/Down previous/next episode or video,
+    OK pause, Left/Right 10s back/forward, Back to the drama page / home; episodes play on automatically.
+  - Following (videos from people you follow) and Explore (trending videos) feeds, next to For You.
+  - The home screen scrolls: Popular short dramas is a grid, 7 per line, that keeps loading as you go down.
+    The Magic Remote wheel moves through it (and to the next/previous video or episode in the player).
+  - "Full TikTok" opens the website for LIVE, search, comments and logging in; Back on its For You
+    (twice: menu, then TV mode) returns to TV mode.
+### Fixed
+- TikTok's security check ("Drag the slider to fit the puzzle") couldn't be solved with the remote: the app took
+  over OK while any pop-up was open, which cancelled the Magic Remote's hold-and-drag. The app now leaves the
+  remote alone on that check.
+- For You on the full site stuck on "LIVE now" preview cards (their stream never ends, so Auto scroll never
+  moved on, and they often froze): one that stays in the middle for 8s with no remote input is skipped.
+### Known limits
+- Watching in TV mode doesn't update TikTok's own watch history (progress is kept on the TV).
+- No likes or comments in TV mode yet (use Full TikTok).
+
 ## [2.4.0]
 ### Changed
 - Phone-app look on For You and Following: the video fills the whole screen (TikTok's frame, rounded corners and

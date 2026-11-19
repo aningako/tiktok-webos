@@ -60,6 +60,21 @@ that may not work inside a TV app.
 
 ## Remote controls
 
+### TV mode (home screen)
+
+The app starts in TV mode, its own light player: Continue watching, Popular short dramas, For You, Following and Explore, with about
+1.5-2.5s per episode or video instead of 7-13s on TikTok's website. Choose **Full TikTok** for everything else
+(LIVE, search, comments, logging in). The Magic Remote wheel scrolls the home screen.
+
+| Button | Home | Player |
+| --- | --- | --- |
+| Arrows | Move between cards | Up / Down: previous / next episode or video; Left / Right: 10s back / forward |
+| OK | Open | Pause / play |
+| Back | Press twice to exit | Back to the drama page / home |
+| Red | Reload | Reload |
+
+### Full TikTok website
+
 | Button | Action |
 |---|---|
 | Up / Down | Previous / next video (on LIVE: previous / next stream) |

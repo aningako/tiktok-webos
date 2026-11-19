@@ -6,6 +6,9 @@
 (function () {
   if (window.top !== window) return;               // not inside captcha/login iframes
   if (window.__tvInjected) return; window.__tvInjected = true;
+  // TV mode: the app's own light player (see tvMode at the end), on a bare tiktok.com document.
+  var TV_URL = 'https://www.tiktok.com/robots.txt?tv=1';
+  if (location.pathname === '/robots.txt' && /[?&]tv=1/.test(location.search)) return tvMode();
   /* ---------- playback fixes ----------
      TikTok plays most videos through MediaSource running inside a Web Worker (its multiple.worker).
      On webOS TV (tested: webOS 10.3 "TV Lite", 50UR7550) worker-MSE videos stall at 0:00 with metadata
@@ -229,6 +232,10 @@
     next.classList.add('tv-focus');                  // outlined while focused, see style below
     next.focus();
     if (next.scrollIntoView) next.scrollIntoView({ block: 'nearest' });
+  }
+  function isCaptcha(d) {
+    return /captcha|secsdk/i.test(d.className + ' ' + d.id) || !!d.querySelector('[class*="captcha"], [id*="captcha"]') ||
+      /Drag the slider|fit the puzzle|Verify to continue/i.test(d.textContent || '');
   }
   function closeDialog(d) {
     var btn = d.querySelector('[data-e2e="modal-close-inner-button"],[data-e2e*="close"],[aria-label="Close"],[aria-label="close"]');
@@ -503,11 +510,25 @@
   function goBack() {
     var d = openDialog();
     if (d) return closeDialog(d);
-    // Phone-style Back on the feed: the first Back on For You opens the menu, the next one exits.
-    if (menuOpen()) { if (isHome()) return exitApp(); return showMenu(false); }
-    if (ROOT.classList.contains('tv-feed') && isHome()) { showMenu(true, true); return toast('Press Back again to exit', 2500); }
+    // Phone-style Back on the feed: the first Back on For You opens the menu, the next one returns to TV mode.
+    if (menuOpen()) { if (isHome()) return backToTvMode(); return showMenu(false); }
+    if (ROOT.classList.contains('tv-feed') && isHome()) { showMenu(true, true); return toast('Press Back again for TV mode', 2500); }
     if (history.length > 1 && !/^\/(foryou)?\/?$/.test(location.pathname)) history.back();
-    else exitApp();
+    else backToTvMode();
+  }
+  function backToTvMode() { location.href = TV_URL; }
+
+  /* Remember what TV mode needs from the full site: region/language/login (TikTok's page data) and the
+     address of TikTok's request-signing script (it carries a version number that changes over time). */
+  function saveTvContext() {
+    try {
+      var el = document.getElementById('__UNIVERSAL_DATA_FOR_REHYDRATION__'); if (!el) return;
+      var a = (JSON.parse(el.textContent).__DEFAULT_SCOPE__ || {})['webapp.app-context'] || {};
+      var ctx = { region: a.region, language: a.language, login: !!(a.user && a.user.uid), wid: a.wid };
+      var sdk = [].filter.call(document.scripts, function (s) { return /\/webmssdk\/[\d.]+\/webmssdk\.js/.test(s.src); })[0];
+      if (sdk) ctx.sdk = sdk.src;
+      if (ctx.region) localStorage.setItem('tvCtx', JSON.stringify(ctx));
+    } catch (e) {}
   }
 
   /* ---------- key handling ---------- */
@@ -516,6 +537,10 @@
     var typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
     var onControl = !!(t && t !== document.body && t.matches && t.matches(FOCUSABLE));
     var dialog = openDialog(), used = true;
+    // TikTok's security check ("Drag the slider to fit the puzzle"): leave every key to the TV. The puzzle is
+    // solved by holding OK on the Magic Remote and moving the pointer; taking over OK here (as for other
+    // dialogs) cancelled that press, so the slider never moved.
+    if (dialog && isCaptcha(dialog)) return;
 
     if (k === KEY.BACK || k === KEY.ESC) {
       if (typing) t.blur(); else goBack();
@@ -600,6 +625,30 @@
     if (next && !next.disabled && visible(next)) next.click(); else page(1);
   }, 1000);
 
+  /* ---------- LIVE previews in the feed ----------
+     For You mixes in "LIVE now" preview cards. Their stream never ends, so Auto scroll never moves on, and on
+     the TV the preview often freezes as well: the feed looked hung. If one is in the middle of the screen for
+     8s and no remote key or pointer click came in meanwhile, go to the next video. (OK on it still opens LIVE.) */
+  var lastInput = 0;
+  addEventListener('keydown', function () { lastInput = Date.now(); }, true);
+  addEventListener('mousedown', function () { lastInput = Date.now(); }, true);
+  var livePrev = { item: null, since: 0 };
+  setInterval(function () {
+    if (document.hidden || isLive() || isDrama() || openDialog() || menuOpen()) return;
+    var arts = document.querySelectorAll('article[data-e2e="recommend-list-item-container"]'), item = null;
+    for (var i = 0; i < arts.length; i++) {
+      var r = arts[i].getBoundingClientRect();
+      if (r.top < innerHeight / 2 && r.bottom > innerHeight / 2) { item = arts[i]; break; }
+    }
+    if (!item || !item.querySelector('[class*="DivRecommendLivePlayer"], [class*="LivePlayer"]')) { livePrev.item = null; return; }
+    if (item !== livePrev.item) { livePrev = { item: item, since: Date.now() }; return; }
+    if (Date.now() - livePrev.since < 8000 || Date.now() - lastInput < 8000) return;
+    livePrev.since = Date.now() + 1e9;                 // once per card
+    toast('Skipped a LIVE preview');
+    var next = document.querySelector('button[data-e2e="feed-navigation-next"]');
+    if (next && !next.disabled) next.click(); else page(1);
+  }, 1000);
+
   /* ---------- recover from CDN error pages ----------
      Sometimes tiktok.com's CDN (Akamai) answers the page load with a bare "An error occurred while
      processing your request. Reference #102..." page; plain reloads can get the same page again, while a
@@ -623,6 +672,473 @@
     applyZoom(false);
     recoverFromCdnError();
     if (document.querySelector('#app, [id^="main-content"]')) { try { sessionStorage.removeItem('tvCdnRetry'); } catch (e) {} }
+    saveTvContext(); setTimeout(saveTvContext, 15000);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+
+  /* ================= TV mode =================
+     The app's own light player. TikTok's desktop site keeps this TV's CPU near 100% (next video 7-13s,
+     page switches up to a minute). TV mode instead runs on a bare tiktok.com document (robots.txt, so
+     TikTok's cookies and login apply), loads only TikTok's request-signing script (webmssdk, which
+     signs fetch() calls to the listed API paths exactly as on TikTok's own pages), asks TikTok's web API for
+     the drama/feed lists and plays them in one plain <video>: about 1s per video, ~2% CPU.
+     Anything TV mode doesn't do (LIVE, search, comments, logging in) is one button away on the full site. */
+  function tvMode() {
+    var SDK_DEFAULT = 'https://sf16-website-login.neutral.ttwstatic.com/obj/tiktok_web_login_static/webmssdk/1.0.0.422/webmssdk.js';
+    var K = { LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, OK: 13, BACK: 461, ESC: 27, PLAY: 415, PAUSE: 19, PLAYPAUSE: 463,
+      FF: 417, RW: 412, RED: 403 };
+    function lsGet(k, d) { try { var v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } }
+    function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+    var ctx = lsGet('tvCtx', {}) || {};
+    var REGION = ctx.region || 'PH', LANG = ctx.language || 'en';
+    var BASE, baseFor = function () { BASE = 'aid=1988&app_name=tiktok_web&device_platform=web_pc&browser_platform=Linux&app_language=' + LANG +
+      '&language=' + LANG + '&region=' + REGION + '&storeRegion=' + REGION + '&priority_region=' + REGION +
+      '&user_is_login=' + (ctx.login === false ? 'false' : 'true') + (ctx.wid ? '&device_id=' + ctx.wid : ''); };
+    baseFor();
+    // No saved context yet (fresh install, full site never opened): read it once from TikTok's For You page as
+    // plain text (its page data), without running any of the page's scripts.
+    var ctxReady = ctx.wid ? Promise.resolve() : fetch('/foryou', { credentials: 'include' }).then(function (r) { return r.text(); }).then(function (t) {
+      var m = t.match(/<script[^>]*id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/);
+      var a = ((JSON.parse(m[1]).__DEFAULT_SCOPE__ || {})['webapp.app-context']) || {};
+      ctx.region = a.region || ctx.region; ctx.language = a.language || ctx.language; ctx.login = !!(a.user && a.user.uid); ctx.wid = a.wid;
+      lsSet('tvCtx', ctx); REGION = ctx.region || REGION; LANG = ctx.language || LANG; baseFor();
+    }).catch(function () {});
+    var E = function (tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+    function exit() {
+      try { if (window.webOSSystem && webOSSystem.platformBack) return webOSSystem.platformBack(); } catch (e) {}
+      try { if (window.PalmSystem && PalmSystem.platformBack) return PalmSystem.platformBack(); } catch (e) {}
+      window.close();
+    }
+    function fullSite(path) { location.href = 'https://www.tiktok.com' + (path || '/foryou'); }
+
+    /* ---------- page ---------- */
+    function build() {
+      document.title = 'TikTok';
+      var css = E('style'); css.textContent =
+        'html,body{margin:0;height:100%;background:#000;color:#fff;font-family:"TikTok Sans",Roboto,Arial,sans-serif;overflow:hidden}' +
+        'pre{display:none}*{box-sizing:border-box}' +
+        '#tv-home{position:fixed;inset:0;padding:28px 0 0 48px;overflow:hidden;background:radial-gradient(ellipse at top left,#1b1b24,#000 60%)}' +
+        '#tv-home h1{margin:0 0 6px;font-size:30px;font-weight:700}#tv-home h1 b{color:#fe2c55}#tv-home h1 i{color:#25f4ee;font-style:normal}' +
+        '#tv-rows{position:relative;transition:transform .2s}' +
+        '.tv-row{margin:18px 0 0}.tv-row h2{margin:0 0 10px;font-size:20px;font-weight:600;color:#ddd}' +
+        '.tv-track{display:flex;gap:16px;transition:transform .2s;padding:6px 4px}' +
+        '.tv-card{flex:0 0 auto;width:150px;border-radius:10px;background:#1c1c22;overflow:hidden;position:relative;outline:3px solid transparent;transition:transform .12s}' +
+        '.tv-card img{display:block;width:150px;height:200px;object-fit:cover;background:#222}' +
+        '.tv-card .t{padding:6px 8px 2px;font-size:14px;line-height:1.25;height:42px;overflow:hidden}' +
+        '.tv-card .s{padding:0 8px 8px;font-size:12px;color:#aaa}' +
+        '.tv-card .bar{position:absolute;left:0;top:196px;height:4px;background:#fe2c55}' +
+        '.tv-row.cont{margin-top:10px}.tv-card.wide{width:220px;height:120px;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:12px}' +
+        '.tv-card.wide .ico{font-size:34px;margin-bottom:6px;height:34px}.tv-card.wide .t{height:auto;font-size:18px;font-weight:600}.tv-card.wide .s{padding:4px 0 0}' +
+        '.tv-card.focus{outline-color:#fe2c55;transform:scale(1.06);z-index:2}' +
+        '.tv-msg{color:#aaa;font-size:16px;padding:20px 4px}' +
+        '#tv-drama{position:fixed;inset:0;display:none;padding:40px 48px;background:#000}' +
+        '#tv-drama .top{display:flex;gap:28px}#tv-drama .top img{width:180px;height:240px;object-fit:cover;border-radius:10px;background:#222}' +
+        '#tv-drama h2{margin:0 0 10px;font-size:30px}#tv-drama p{margin:0 0 16px;color:#bbb;font-size:15px;line-height:1.4;max-width:820px;max-height:126px;overflow:hidden}' +
+        '#tv-drama .eps{display:flex;flex-wrap:wrap;gap:10px;margin-top:24px;max-height:290px;overflow:hidden}' +
+        '#tv-drama .ep,#tv-drama .btn{min-width:62px;height:46px;border-radius:8px;background:#26262e;display:flex;align-items:center;justify-content:center;font-size:18px;outline:3px solid transparent}' +
+        '#tv-drama .btn{display:inline-flex;padding:0 22px;background:#fe2c55;font-weight:600}' +
+        '#tv-drama .ep.seen{color:#888}#tv-drama .ep.cur{background:#4a1a26}#tv-drama .focus{outline-color:#fff}' +
+        '#tv-player{position:fixed;inset:0;display:none;background:#000}' +
+        '#tv-player video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}' +
+        '#tv-ov{position:absolute;left:0;right:0;bottom:0;padding:60px 40px 26px;background:linear-gradient(transparent,rgba(0,0,0,.75));transition:opacity .4s}' +
+        '#tv-ov .a{font-size:22px;font-weight:700}#tv-ov .d{font-size:16px;color:#ddd;margin-top:6px;max-width:900px;max-height:44px;overflow:hidden}' +
+        '#tv-ov .bar{height:4px;background:rgba(255,255,255,.25);margin-top:14px;border-radius:2px}#tv-ov .bar i{display:block;height:100%;width:0;background:#fe2c55;border-radius:2px}' +
+        '#tv-ov.hide{opacity:0}' +
+        '#tv-spin{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:20px;color:#ccc;display:none}' +
+        '#tv-toast{position:fixed;right:30px;top:24px;z-index:9;background:rgba(0,0,0,.8);color:#fff;font-size:22px;padding:10px 20px;border-radius:10px;opacity:0;transition:opacity .3s;pointer-events:none}';
+      document.head.appendChild(css);
+      document.body.innerHTML =
+        '<div id="tv-home"><div id="tv-rows"><h1><b>Tik</b><i>Tok</i> TV</h1></div></div>' +
+        '<div id="tv-drama"></div>' +
+        '<div id="tv-player"><video id="tv-video" playsinline></video><div id="tv-spin">Loading…</div>' +
+        '<div id="tv-ov"><div class="a"></div><div class="d"></div><div class="bar"><i></i></div></div></div>' +
+        '<div id="tv-toast"></div>';
+    }
+    var toastTm;
+    function toast(m, ms) {
+      var t = document.getElementById('tv-toast'); t.textContent = m; t.style.opacity = '1';
+      clearTimeout(toastTm); toastTm = setTimeout(function () { t.style.opacity = '0'; }, ms || 1500);
+    }
+
+    /* ---------- TikTok API (signed by TikTok's own webmssdk) ---------- */
+    var sdkReady = null;
+    function loadSdk() {
+      if (sdkReady) return sdkReady;
+      sdkReady = new Promise(function (ok, ko) {
+        function load(src, fallback) {
+          var s = document.createElement('script'); s.src = src;
+          s.onload = function () {
+            try {
+              window.byted_acrawler.init({ aid: 1988, dfp: false, boe: false, intercept: true,
+                enablePathList: ['/api/recommend/item_list/', '/api/following/item_list/', '/api/explore/item_list/', '/api/drama/'], region: 'sg-tiktok', apiHost: '',
+                mode: ctx.login === false ? 516 : 513, isSDK: false, custom: {} });
+              ok();
+            } catch (e) { ko(e); }
+          };
+          s.onerror = function () { if (fallback) load(fallback); else ko(new Error('sdk')); };
+          document.head.appendChild(s);
+        }
+        load(ctx.sdk || SDK_DEFAULT, ctx.sdk && ctx.sdk !== SDK_DEFAULT ? SDK_DEFAULT : null);
+      });
+      return sdkReady;
+    }
+    function api(path, params) {
+      return Promise.all([loadSdk(), ctxReady]).then(function () {
+        return fetch(path + '?' + params + '&' + BASE, { credentials: 'include' });
+      }).then(function (r) { return r.text(); }).then(function (t) {
+        var j; try { j = JSON.parse(t); } catch (e) { throw new Error('empty'); }
+        if (j.statusCode !== 0 && j.status_code !== 0) throw new Error('status ' + (j.statusCode || j.status_code));
+        return j;
+      });
+    }
+    function playUrl(item) {
+      var v = item && item.video || {}, list = (v.PlayAddrStruct || {}).UrlList || [];
+      for (var i = 0; i < list.length; i++) if (/\/aweme\/v1\/play\//.test(list[i])) return list[i];
+      return list[0] || v.playAddr || null;   // (v*-webapp-prime URLs need a cookie the TV's player doesn't send)
+    }
+    function coverOf(d) {
+      var z = d.zoomCover || {}, c = d.cover && d.cover.urlList;
+      return z['480'] || z['240'] || (c && c[0]) || '';
+    }
+
+    /* ---------- progress (TV mode keeps its own: TikTok's history isn't told about our playback) ---------- */
+    function progAll() { return lsGet('tvProgress', {}) || {}; }
+    function progGet(id) { return progAll()[id] || null; }
+    function progSet(d, ep, t) {
+      var all = progAll();
+      all[d.dramaID] = { ep: ep, t: Math.floor(t || 0), at: Date.now(), name: d.dramaName, cover: coverOf(d), num: d.numVideos, desc: d.description };
+      var ids = Object.keys(all).sort(function (a, b) { return all[b].at - all[a].at; });
+      for (var i = 40; i < ids.length; i++) delete all[ids[i]];
+      lsSet('tvProgress', all);
+    }
+
+    /* ---------- home ----------
+       A page of rows you scroll down through: Continue watching, the TikTok row (For You, Following, Full TikTok,
+       Reload), then Popular short dramas as a grid of 7 per line that keeps loading as you go down. */
+    var rows = [], pos = { r: 0, c: [] }, screen = 'home', GRID = 7, POP0 = 2;   // POP0: first grid row
+    var ICON = function (d) { return '<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + d + '</svg>'; };
+    function card(it) {
+      var c = E('div', 'tv-card' + (it.wide ? ' wide' : ''));
+      if (it.wide) c.innerHTML = '<div class="ico">' + it.icon + '</div><div class="t">' + esc(it.title) + '</div><div class="s">' + esc(it.sub || '') + '</div>';
+      else {
+        c.innerHTML = '<img loading="lazy" src="' + esc(it.img) + '"><div class="t">' + esc(it.title) + '</div><div class="s">' + esc(it.sub || '') + '</div>' +
+          (it.pct ? '<div class="bar" style="width:' + Math.min(100, it.pct) + '%"></div>' : '');
+      }
+      c.addEventListener('click', function () { it.go(); });
+      // only real pointer movement selects (a resting pointer gets mouseenter when the layout moves under it)
+      c.addEventListener('mousemove', function () { if (!it.el.classList.contains('focus')) focusCard(it.row, it.col, true); });
+      return c;
+    }
+    function setRow(i, title, items, msg) {
+      var rowsEl = document.getElementById('tv-rows'), el = rows[i] && rows[i].el;
+      if (!el) { el = E('div', 'tv-row'); rowsEl.appendChild(el); }
+      el.innerHTML = title ? '<h2>' + esc(title) + '</h2>' : '';
+      el.className = 'tv-row' + (title ? '' : ' cont');
+      var track = E('div', 'tv-track'); el.appendChild(track);
+      items.forEach(function (it, j) { it.row = i; it.col = j; it.el = card(it); track.appendChild(it.el); });
+      if (!items.length) track.appendChild(E('div', 'tv-msg', esc(msg || 'Nothing here yet')));
+      rows[i] = { el: el, track: track, items: items, title: title };
+      if (pos.c[i] == null) pos.c[i] = 0;
+      if (screen === 'home' && rows[pos.r] && rows[pos.r].items.length) focusCard(pos.r, pos.c[pos.r], true);
+    }
+    function focusCard(r, c, keepScroll) {
+      if (!rows[r]) return;
+      var items = rows[r].items; if (!items.length) { pos.r = r; return; }
+      c = Math.max(0, Math.min(items.length - 1, c));
+      var old = document.querySelector('.tv-card.focus'); if (old) old.classList.remove('focus');
+      pos.r = r; pos.c[r] = c; items[c].el.classList.add('focus');
+      var x = items[c].el.offsetLeft, w = 1280 - 48 - 60;
+      rows[r].track.style.transform = 'translateX(' + (x > w - 240 ? -(x - (w - 240)) : 0) + 'px)';
+      // vertical: keep the focused row in view, a bit below the top (the page title scrolls away with it)
+      var box = document.getElementById('tv-rows'), top = rows[r].el.offsetTop, h = rows[r].el.offsetHeight;
+      var cur = -(parseFloat((box.style.transform || '').replace(/[^-\d.]/g, '')) || 0), want = cur;
+      if (!keepScroll || top - cur < 0 || top + h - cur > 690) want = r === 0 ? 0 : Math.max(0, top - 150);
+      box.style.transform = 'translateY(' + (-want) + 'px)';
+      if (items[c].onFocus) items[c].onFocus();
+    }
+    function homeMove(k) {
+      var r = pos.r, c = pos.c[r] || 0;
+      if (k === K.LEFT) return focusCard(r, c - 1);
+      if (k === K.RIGHT) return focusCard(r, c + 1);
+      var dir = k === K.DOWN ? 1 : -1, n = r + dir;
+      while (rows[n] && !rows[n].items.length) n += dir;
+      if (!rows[n]) return;
+      // in the drama grid keep the same column; entering/leaving it keep each row's own position
+      var col = (r >= POP0 && n >= POP0) ? c : (pos.c[n] || 0);
+      focusCard(n, col);
+    }
+    function homeKey(k) {
+      var r = pos.r, c = pos.c[r] || 0;
+      if (k === K.LEFT || k === K.RIGHT || k === K.UP || k === K.DOWN) homeMove(k);
+      else if (k === K.OK) { var it = rows[r] && rows[r].items[c]; if (it) it.go(); }
+      else if (k === K.BACK || k === K.ESC) {
+        if (Date.now() - (homeKey.back || 0) < 2500) return exit();
+        homeKey.back = Date.now(); toast('Press Back again to exit', 2500);
+      } else return false;
+      return true;
+    }
+    function dramaCard(d, extra) {
+      var p = progGet(d.dramaID), ep = p ? p.ep : (d.shortDramaWatchHistory && d.shortDramaWatchHistory.lastWatchedEpisodeNumber);
+      return { img: coverOf(d), title: d.dramaName, sub: ep ? 'Episode ' + ep + ' of ' + d.numVideos : d.numVideos + ' episodes',
+        pct: ep ? ep / d.numVideos * 100 : 0, go: function () { (extra && extra.resume) ? resumeDrama(d) : openDrama(d); } };
+    }
+    function loadHome() {
+      setRow(0, 'Continue watching', [], 'Loading…');
+      setRow(1, 'TikTok', [
+        { wide: true, icon: ICON('<path d="M7 4l13 8-13 8z" fill="#fff"/>'), title: 'For You', sub: 'Videos picked for you', go: function () { openFeed('fyp'); } },
+        { wide: true, icon: ICON('<circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M17 11l2 2 4-4"/>'), title: 'Following', sub: 'From people you follow', go: function () { openFeed('following'); } },
+        { wide: true, icon: ICON('<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/>'), title: 'Explore', sub: 'Trending videos', go: function () { openFeed('explore'); } },
+        { wide: true, icon: ICON('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>'), title: 'Full TikTok', sub: 'LIVE, search, comments', go: function () { fullSite('/foryou'); } },
+        { wide: true, icon: ICON('<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>'), title: 'Reload', sub: 'Refresh these lists', go: function () { location.reload(); } }
+      ]);
+      setRow(POP0, 'Popular short dramas', [], 'Loading…');
+      focusCard(0, 0);
+      api('/api/drama/watch_history/', 'count=20&coverFormat=2&cursor=0').then(function (j) {
+        tikHistory = j.dramaList || [];
+      }).catch(function () {}).then(renderContinue);
+      loadPopular(true);
+    }
+    // Continue watching: this TV's own progress first (newest first), then TikTok's watch history.
+    var tikHistory = [];
+    function renderContinue() {
+      var local = progAll(), ids = Object.keys(local).sort(function (a, b) { return local[b].at - local[a].at; });
+      var cont = ids.map(function (id) { var p = local[id]; return { dramaID: id, dramaName: p.name, numVideos: p.num, description: p.desc, zoomCover: { 480: p.cover } }; });
+      tikHistory.forEach(function (d) { if (!local[d.dramaID]) cont.push(d); });
+      if (pos.r === 0) pos.c[0] = 0;          // the drama just watched is now first
+      setRow(0, 'Continue watching', cont.map(function (d) { return dramaCard(d, { resume: true }); }), 'Dramas you watch will show up here');
+    }
+    var popular = { list: [], cursor: '0', more: true, busy: false };
+    function loadPopular(first) {
+      if (popular.busy || !popular.more) return; popular.busy = true;
+      api('/api/drama/theme/drama_list/', 'count=21&coverFormat=2&oneColumnMode=true&themeType=7&from_page=&cursor=' + encodeURIComponent(popular.cursor)).then(function (j) {
+        popular.list = popular.list.concat(j.dramaList || []); popular.cursor = j.cursor; popular.more = !!j.hasMore && (j.dramaList || []).length > 0;
+        renderPopular();
+      }).catch(function (e) {
+        if (first) setRow(POP0, 'Popular short dramas', [], 'Could not load dramas (' + e.message + '). Choose Reload above to try again.');
+      }).then(function () { popular.busy = false; });
+    }
+    function renderPopular() {
+      var all = popular.list.map(function (d) { return dramaCard(d); });
+      for (var g = 0; g * GRID < all.length; g++) {
+        var chunk = all.slice(g * GRID, (g + 1) * GRID), r = POP0 + g;
+        if (rows[r] && rows[r].items.length === chunk.length) continue;   // unchanged line
+        setRow(r, g === 0 ? 'Popular short dramas' : '', chunk);
+      }
+      // load more when a card in the last two lines gets focus
+      var last = POP0 + g - 1;
+      for (var r2 = Math.max(POP0, last - 1); r2 <= last; r2++) rows[r2].items.forEach(function (it) { it.onFocus = function () { loadPopular(); }; });
+    }
+    // Magic Remote wheel: one row (or video / episode) per notch, at most every 250ms
+    var wheelAt = 0;
+    function onWheel(e) {
+      e.preventDefault();
+      if (Date.now() - wheelAt < 250 || !e.deltaY) return; wheelAt = Date.now();
+      var k = e.deltaY > 0 ? K.DOWN : K.UP;
+      if (screen === 'home') homeMove(k);
+      else if (screen === 'drama') dramaKey(k);
+      else if (cur) step(k === K.DOWN ? 1 : -1);
+    }
+
+    /* ---------- drama page ---------- */
+    var drama = null;   // { d, eps: [items by episode-1], total, cursor, more, focus: index into buttons }
+    function show(name) {
+      screen = name;
+      document.getElementById('tv-home').style.display = name === 'home' ? '' : 'none';
+      document.getElementById('tv-drama').style.display = name === 'drama' ? 'block' : 'none';
+      document.getElementById('tv-player').style.display = name === 'player' ? 'block' : 'none';
+      if (name !== 'player') stopVideo();
+      if (name === 'home') { renderContinue(); focusCard(pos.r, pos.c[pos.r] || 0); }
+    }
+    function loadEpisodes(dr, upTo) {
+      if (dr.eps.length >= upTo || !dr.more) return Promise.resolve();
+      return api('/api/drama/episode/item_list/', 'dramaID=' + dr.d.dramaID + '&cursor=' + dr.cursor + '&count=30').then(function (j) {
+        dr.eps = dr.eps.concat(j.itemList || []); dr.cursor = j.cursor; dr.more = !!j.hasMore && (j.itemList || []).length > 0;
+        if (j.totalEpisodeCount) dr.total = j.totalEpisodeCount;
+        return loadEpisodes(dr, upTo);
+      });
+    }
+    function newDrama(d) { return { d: d, eps: [], total: d.numVideos || 0, cursor: '0', more: true }; }
+    function openDrama(d) {
+      drama = newDrama(d); show('drama');
+      var p = progGet(d.dramaID), ep = p ? p.ep : 0, el = document.getElementById('tv-drama');
+      el.innerHTML = '<div class="top"><img src="' + esc(coverOf(d)) + '"><div><h2>' + esc(d.dramaName) + '</h2><p>' + esc(d.description || '') + '</p>' +
+        '<div class="btn" data-i="play">' + (ep ? '▶ Continue episode ' + ep : '▶ Play episode 1') + '</div></div></div><div class="eps"></div>';
+      drama.focus = 0;
+      if (!d.description) api('/api/drama/detail/', 'dramaID=' + d.dramaID).then(function (j) {
+        var i = j.dramaInfo || {}; if (drama && drama.d === d) { d.description = i.description; el.querySelector('p').textContent = i.description || ''; }
+      }).catch(function () {});
+      renderEps(); dramaFocus(0);
+    }
+    function renderEps() {
+      var p = progGet(drama.d.dramaID), box = document.querySelector('#tv-drama .eps'); if (!box) return;
+      var html = '';
+      for (var n = 1; n <= drama.total; n++) html += '<div class="ep' + (p && n < p.ep ? ' seen' : '') + (p && n === p.ep ? ' cur' : '') + '" data-i="' + n + '">' + n + '</div>';
+      box.innerHTML = html;
+      [].forEach.call(document.querySelectorAll('#tv-drama [data-i]'), function (b, i) {
+        b.addEventListener('click', function () { dramaFocus(i); dramaKey(K.OK); });
+        b.addEventListener('mousemove', function () { if (drama.focus !== i) dramaFocus(i); });
+      });
+    }
+    function dramaButtons() { return document.querySelectorAll('#tv-drama [data-i]'); }
+    function dramaFocus(i) {
+      var bs = dramaButtons(); if (!bs.length) return;
+      i = Math.max(0, Math.min(bs.length - 1, i));
+      var old = document.querySelector('#tv-drama .focus'); if (old) old.classList.remove('focus');
+      drama.focus = i; bs[i].classList.add('focus');
+      var box = document.querySelector('#tv-drama .eps'), b = bs[i];
+      if (i > 0) box.scrollTop = Math.max(0, b.offsetTop - box.offsetTop - 112);
+    }
+    function dramaKey(k) {
+      var i = drama.focus, per = 16;   // episode buttons per row
+      if (k === K.BACK || k === K.ESC) { show('home'); return true; }
+      if (k === K.LEFT) dramaFocus(i - 1);
+      else if (k === K.RIGHT) dramaFocus(i + 1);
+      else if (k === K.DOWN) dramaFocus(i === 0 ? 1 : i + per);
+      else if (k === K.UP) dramaFocus(i <= per ? 0 : i - per);
+      else if (k === K.OK || k === K.PLAY || k === K.PLAYPAUSE) {
+        var b = dramaButtons()[i], p = progGet(drama.d.dramaID);
+        if (!b) return true;
+        if (b.getAttribute('data-i') === 'play') playEpisode(drama, p ? p.ep : 1, p ? p.t : 0);
+        else playEpisode(drama, +b.getAttribute('data-i'), 0);
+      } else return false;
+      return true;
+    }
+    function resumeDrama(d) {
+      var p = progGet(d.dramaID), ep = p ? p.ep : (d.shortDramaWatchHistory && d.shortDramaWatchHistory.lastWatchedEpisodeNumber) || 1;
+      drama = newDrama(d); playEpisode(drama, ep, p ? p.t : 0);
+    }
+
+    /* ---------- player ---------- */
+    var video, ov, cur = null, ovTm, saveTm;   // cur: { kind:'drama'|'feed', ... }
+    function stopVideo() {
+      if (!video) return;
+      try { video.pause(); video.removeAttribute('src'); video.load(); } catch (e) {}
+      clearInterval(saveTm); cur = null;
+    }
+    function showOv(a, d) {
+      if (a != null) ov.querySelector('.a').textContent = a;
+      if (d != null) ov.querySelector('.d').textContent = d;
+      ov.classList.remove('hide'); clearTimeout(ovTm);
+      ovTm = setTimeout(function () { if (video && !video.paused) ov.classList.add('hide'); }, 4000);
+    }
+    function play(url, startAt) {
+      var spin = document.getElementById('tv-spin');
+      show('player'); spin.style.display = 'block';
+      if (!url) { spin.style.display = 'none'; toast('This video can’t be played here', 2500); return false; }
+      video.src = url;
+      if (startAt > 3) video.addEventListener('loadedmetadata', function f() { video.removeEventListener('loadedmetadata', f); try { video.currentTime = startAt - 2; } catch (e) {} });
+      var p = video.play(); if (p && p.catch) p.catch(function () {});
+      return true;
+    }
+    function playEpisode(dr, ep, startAt) {
+      show('player');
+      var c = cur = { kind: 'drama', dr: dr, ep: ep };
+      showOv(dr.d.dramaName, 'Episode ' + ep + (dr.total ? ' of ' + dr.total : ''));
+      document.getElementById('tv-spin').style.display = 'block';
+      loadEpisodes(dr, ep).then(function () {
+        if (cur !== c) return;
+        var item = dr.eps[ep - 1];
+        if (!item) { toast('Episode ' + ep + ' isn’t available', 2500); return show(drama ? 'drama' : 'home'); }
+        if (play(playUrl(item), startAt)) progSet(dr.d, ep, startAt || 0);
+        clearInterval(saveTm);
+        saveTm = setInterval(function () { if (cur === c && video.currentTime > 0) progSet(dr.d, ep, video.currentTime); }, 5000);
+      }).catch(function (e) { toast('Couldn’t load the episode (' + e.message + ')', 3000); show('home'); });
+    }
+    // For You and Following: each keeps its own list and position. For You returns new videos on every call;
+    // Following pages with a cursor.
+    var feeds = {
+      fyp: { path: '/api/recommend/item_list/', q: 'count=8&from_page=fyp&os=linux&screen_height=1080&screen_width=1920', items: [], i: -1 },
+      explore: { path: '/api/explore/item_list/', q: 'categoryType=120&count=8&enable_cache=false&pullType=1&store_region=' + REGION, items: [], i: -1 },
+      following: { path: '/api/following/item_list/', q: 'count=9&coverFormat=2&from_page=following&pullType=1&level=1&isNonPersonalized=false&isResetCounterUsed=true', items: [], i: -1, cursor: '0', more: true }
+    }, feed = feeds.fyp;
+    function moreFeed(f) {
+      if (f.busy) return f.busy;
+      if (f.more === false) return Promise.resolve();
+      f.busy = api(f.path, f.q + (f.cursor != null ? '&cursor=' + encodeURIComponent(f.cursor) : '')).then(function (j) {
+        var seen = {}, added = 0;
+        f.items.forEach(function (it) { seen[it.id] = 1; });
+        (j.itemList || []).forEach(function (it) { if (playUrl(it) && !it.imagePost && !seen[it.id]) { seen[it.id] = 1; f.items.push(it); added++; } });
+        // (Following answers with cursor "0" again; stop once a page brings nothing new)
+        if (f.cursor != null) { f.cursor = j.cursor; f.more = !!j.hasMore && added > 0; }
+      }).catch(function (e) { toast('Couldn’t load videos (' + e.message + ')', 2500); })
+        .then(function () { f.busy = null; });
+      return f.busy;
+    }
+    function feedGo(i) {
+      if (i < 0) return;
+      var f = feed, c = cur = { kind: 'feed', i: i };
+      var need = i >= f.items.length - 2 ? moreFeed(f) : Promise.resolve();
+      if (i < f.items.length) start(); else { show('player'); document.getElementById('tv-spin').style.display = 'block'; need.then(function () { if (cur === c) start(); }); }
+      function start() {
+        if (i >= f.items.length) { toast(f === feeds.following ? 'No more videos from people you follow' : 'No more videos right now', 2500); if (f.i < 0) show('home'); return; }
+        f.i = i; var it = f.items[i], au = it.author || {};
+        play(playUrl(it), 0); cur = c;
+        showOv('@' + (au.uniqueId || au.nickname || ''), it.desc || '');
+      }
+    }
+    function openFeed(kind) { feed = feeds[kind] || feeds.fyp; feedGo(Math.max(0, feed.i)); }
+    function step(dir) {
+      if (!cur) return;
+      if (cur.kind === 'feed') return feedGo(feed.i + dir);
+      var ep = cur.ep + dir;
+      if (ep < 1) return toast('This is the first episode');
+      if (cur.dr.total && ep > cur.dr.total) { toast('That was the last episode', 2500); return show(drama ? 'drama' : 'home'); }
+      playEpisode(cur.dr, ep, 0);
+    }
+    function playerKey(k) {
+      if (k === K.BACK || k === K.ESC) {
+        if (cur && cur.kind === 'drama') { var d = cur.dr.d; progSet(d, cur.ep, video.currentTime); openDrama(d); }
+        else show('home');
+      } else if (k === K.DOWN) step(1);
+      else if (k === K.UP) step(-1);
+      else if (k === K.OK || k === K.PLAY || k === K.PAUSE || k === K.PLAYPAUSE) {
+        if (video.paused) { var p = video.play(); if (p && p.catch) p.catch(function () {}); toast('▶'); } else { video.pause(); toast('❚❚'); }
+        showOv();
+      } else if (k === K.LEFT || k === K.RW) { video.currentTime = Math.max(0, video.currentTime - 10); toast('« 10s'); showOv(); }
+      else if (k === K.RIGHT || k === K.FF) { video.currentTime = Math.min(video.duration || 1e9, video.currentTime + 10); toast('10s »'); showOv(); }
+      else return false;
+      return true;
+    }
+
+    /* ---------- start ---------- */
+    function start() {
+      if (!document.body) return document.addEventListener('DOMContentLoaded', start);
+      build();
+      video = document.getElementById('tv-video'); ov = document.getElementById('tv-ov');
+      var spin = document.getElementById('tv-spin');
+      video.addEventListener('playing', function () { spin.style.display = 'none'; showOv(); });
+      video.addEventListener('waiting', function () { spin.style.display = 'block'; });
+      video.addEventListener('timeupdate', function () {
+        if (video.duration) ov.querySelector('.bar i').style.width = (video.currentTime / video.duration * 100) + '%';
+      });
+      video.addEventListener('ended', function () {
+        if (cur && cur.kind === 'drama') progSet(cur.dr.d, Math.min(cur.ep + 1, cur.dr.total || cur.ep + 1), 0);
+        step(1);
+      });
+      video.addEventListener('error', function () {
+        if (!cur || !video.getAttribute('src')) return;
+        spin.style.display = 'none';
+        if (cur.kind === 'feed') { toast('Skipped a video that couldn’t play', 2000); setTimeout(function () { step(1); }, 800); }
+        else toast('The episode didn’t play. Press OK to try again.', 4000);
+      });
+      document.addEventListener('visibilitychange', function () { if (document.hidden && video && !video.paused) video.pause(); });
+      addEventListener('keydown', function (e) {
+        var k = e.keyCode, used;
+        if (k === K.RED) { location.reload(); used = true; }
+        else if (screen === 'home') used = homeKey(k);
+        else if (screen === 'drama') used = dramaKey(k);
+        else used = playerKey(k);
+        if (used) { e.preventDefault(); e.stopPropagation(); }
+      }, true);
+      addEventListener('mousemove', function () { if (screen === 'player') showOv(); });
+      addEventListener('wheel', onWheel, { passive: false });
+      video.addEventListener('click', function () { playerKey(K.OK); });
+      loadHome();
+      loadSdk().catch(function () {
+        setRow(1, 'Popular short dramas', [], 'TikTok didn’t load. Check the internet connection, then choose Reload below.');
+      });
+    }
+    start();
+  }
 })();
