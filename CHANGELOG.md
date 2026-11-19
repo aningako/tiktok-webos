@@ -2,6 +2,14 @@
 
 All notable changes to this project. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.4.0]
+### Changed
+- Phone-app look on For You and Following: the video fills the whole screen (TikTok's frame, rounded corners and
+  sidebar are gone), with like/comment/share on the right and the caption at the bottom, like the phone app.
+- The menu (sidebar) is hidden on those pages. It slides in when the Magic Remote pointer reaches the left edge, or
+  with Back on For You ("Press Back again to exit"; a second Back exits). In the menu, Up/Down choose a page, OK
+  opens it, Right closes the menu. Short dramas, Explore and LIVE keep TikTok's normal layout.
+
 ## [2.3.0]
 ### Added
 - "Loading Explore…" (Following, Friends, Short dramas, …) message from clicking a menu item until TikTok has drawn

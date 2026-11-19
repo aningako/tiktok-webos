@@ -248,6 +248,25 @@
     '[role="button"]:focus-visible,[role="link"]:focus-visible,[role="tab"]:focus-visible,[role="option"]:focus-visible,' +
     '.tv-focus:focus{outline:4px solid #fe2c55 !important;outline-offset:2px}' +
     '.tv-nofocus:focus{outline:none !important}';
+  /* Phone-app look on feed pages (For You, Following…): video edge to edge, menu hidden. TikTok frames each
+     feed item with a 16px border plus `clip-path: inset(16px 0 round 16px)` and sizes the list 32px taller to
+     make room; all of that goes, so items are exactly one screen tall. The menu (sidebar) slides in when the
+     pointer reaches the left edge, or with Back on For You (see tvMenu below). */
+  style.textContent +=
+    // (the sidebar sits inside its placeholder, so the placeholder is collapsed rather than hidden)
+    'html.tv-feed [class*="DivSideNavPlaceholderContainer"]{width:0!important;min-width:0!important;flex:0 0 0!important;overflow:visible!important}' +
+    'html.tv-feed [class*="DivSideNavContainer"]{transform:translateX(-100%);z-index:1000;background:rgba(0,0,0,.92)!important}' +
+    'html.tv-feed.tv-menu [class*="DivSideNavContainer"]{transform:none}' +
+    'html.tv-menu [class*="DivSideNavContainer"] a.tv-focus{outline:none!important;background:rgba(254,44,85,.3)!important;border-radius:8px!important}' +
+    'html.tv-feed main[class*="DivMainContainer"]{margin-left:0!important;left:0!important;width:100%!important;max-width:none!important;padding:0!important}' +
+    'html.tv-feed [class*="DivPlayerColumn"]{padding:0!important}' +
+    'html.tv-feed [class*="DivColumnListContainer"]{margin:0!important;height:100%!important}' +
+    'html.tv-feed article[data-e2e="recommend-list-item-container"]{border:0!important;clip-path:none!important;padding:0!important;margin:0!important;width:100%!important;max-width:none!important}' +
+    'html.tv-feed [class*="DivContentFlexLayout"]{height:100%!important;max-height:none!important;margin:0!important;padding:0!important}' +
+    'html.tv-feed [class*="SectionMediaCardContainer"]{height:100%!important;max-height:none!important;width:100%!important;border-radius:0!important}' +
+    'html.tv-feed [class*="SectionMediaCardContainer"] *{border-radius:0!important}' +
+    'html.tv-feed [class*="DivBasicPlayerWrapper"]{border-radius:0!important;top:0!important;left:0!important;width:100%!important;height:100%!important;margin:0!important}' +
+    'html.tv-feed [class*="DivFeedNavigationContainer"]{display:none!important}';
   // ...and never on large page areas, whatever their role.
   addEventListener('focusin', function (e) {
     var t = e.target; if (!t || !t.getBoundingClientRect) return;
@@ -440,9 +459,53 @@
     try { if (window.PalmSystem && PalmSystem.platformBack) return PalmSystem.platformBack(); } catch (e) {}
     window.close();
   }
+  /* ---------- phone-app look: feed pages full screen, menu on demand (styles above) ---------- */
+  var ROOT = document.documentElement;
+  function sideNav() { return document.querySelector('[class*="DivSideNavContainer"]'); }
+  function isHome() { return /^\/(foryou)?\/?$/.test(location.pathname); }
+  function menuOpen() { return ROOT.classList.contains('tv-feed') && ROOT.classList.contains('tv-menu'); }
+  // Remote focus in the menu moves over its page links only (For You, Explore, … Profile, More), starting
+  // at the current page's link; TikTok's other sidebar controls (collapse button, search) are skipped.
+  function menuMove(dir) {
+    var n = sideNav(); if (!n) return;
+    var all = n.querySelectorAll('a[href]'), list = [];
+    for (var i = 0; i < all.length; i++) if (visible(all[i]) && all[i].getBoundingClientRect().top > 100) list.push(all[i]);
+    if (!list.length) return;
+    var idx = list.indexOf(document.activeElement), next;
+    if (idx < 0) {
+      for (i = 0; i < list.length; i++) if (list[i].pathname === location.pathname) next = list[i];
+      next = next || list[0];
+    } else next = list[Math.max(0, Math.min(list.length - 1, idx + (dir || 0)))];
+    var prev = document.querySelector('.tv-focus'); if (prev) prev.classList.remove('tv-focus');
+    next.classList.add('tv-focus'); next.focus();
+  }
+  function showMenu(on, focus) {
+    ROOT.classList.toggle('tv-menu', !!on);
+    var n = sideNav();
+    if (on && focus) menuMove(0);
+    if (!on && n && n.contains(document.activeElement)) document.activeElement.blur();
+  }
+  setInterval(function () {                          // feed pages are the ones with TikTok's video list
+    // (the Short dramas player uses the same list but keeps TikTok's own layout, with its episode panel)
+    var feed = !isLive() && !isDrama() && !!document.querySelector('article[data-e2e="recommend-list-item-container"]');
+    if (feed !== ROOT.classList.contains('tv-feed')) { ROOT.classList.toggle('tv-feed', feed); if (!feed) showMenu(false); }
+  }, 500);
+  addEventListener('mousemove', function (e) {       // Magic Remote pointer at the left edge opens the menu
+    if (!ROOT.classList.contains('tv-feed')) return;
+    if (e.clientX < 30) { if (!menuOpen()) showMenu(true); }
+    else if (e.clientX > 280 && menuOpen()) showMenu(false);
+  }, true);
+  addEventListener('click', function (e) {          // picking a menu item closes the menu
+    var n = sideNav();
+    if (menuOpen() && n && n.contains(e.target) && e.target.closest('a[href]')) showMenu(false);
+  }, true);
+
   function goBack() {
     var d = openDialog();
     if (d) return closeDialog(d);
+    // Phone-style Back on the feed: the first Back on For You opens the menu, the next one exits.
+    if (menuOpen()) { if (isHome()) return exitApp(); return showMenu(false); }
+    if (ROOT.classList.contains('tv-feed') && isHome()) { showMenu(true, true); return toast('Press Back again to exit', 2500); }
     if (history.length > 1 && !/^\/(foryou)?\/?$/.test(location.pathname)) history.back();
     else exitApp();
   }
@@ -463,6 +526,12 @@
     } else if (typing) {
       // Up/Down leave a text field so the user can reach buttons below it.
       if (dialog && (k === KEY.UP || k === KEY.DOWN)) moveFocus(dialog, k === KEY.DOWN ? 1 : -1); else return;
+    } else if (menuOpen() && !dialog) {
+      // Menu open: Up/Down move through it, OK opens the item, Right/Left close it.
+      if (k === KEY.DOWN || k === KEY.UP) menuMove(k === KEY.DOWN ? 1 : -1);
+      else if (k === KEY.OK) { if (onControl) t.click(); else menuMove(0); }
+      else if (k === KEY.RIGHT || k === KEY.LEFT) showMenu(false);
+      else used = false;
     } else if (dialog) {
       // Inside login / comment dialogs: arrows move focus, OK clicks.
       if (k === KEY.DOWN || k === KEY.RIGHT) moveFocus(dialog, 1);

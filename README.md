@@ -68,10 +68,13 @@ that may not work inside a TV app.
 | Left | Mute / unmute |
 | Channel Up / Down | Zoom in / out (50–200%, saved) |
 | Red / Green / Yellow / Blue | Reload / For You / Following / Explore |
-| Back | Close dialog → go back → exit |
+| Back | Close dialog → go back; on For You: open the menu, Back again exits |
 
 When a dialog (login, comments…) is open, the arrow keys move focus between its buttons and fields, and OK clicks.
 The Magic Remote pointer works for clicking and scrolling everywhere.
+
+For You and Following look like the phone app: the video fills the screen and the menu is hidden. Move the pointer
+to the left edge (or press Back on For You) to open the menu; in it Up/Down choose, OK opens, Right closes.
 
 ## How it works
 
