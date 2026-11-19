@@ -58,6 +58,54 @@
     }
   } catch (e) {}
 
+  /* ---------- skip video URLs the TV can't open ----------
+     Each video comes with a UrlList: two v*-webapp-prime.tiktok.com URLs, then a www.tiktok.com/aweme/v1/play/
+     URL. The prime URLs need the HttpOnly tt_chain_token cookie (403 without it, 206 with it), but webOS hands
+     <video> URLs to its own media pipeline, which doesn't send the browser's cookies. So on the TV every video
+     first failed twice (MEDIA_ERR_SRC_NOT_SUPPORTED / decode error) before TikTok fell back to the aweme URL,
+     about 5-10s per video. Remember each UrlList as TikTok receives it (page data via JSON.parse, feed
+     updates via Response.json) and hand the <video> the aweme URL straight away. */
+  try {
+    var PRIME = /^https?:\/\/[^/]*-webapp-prime[^/]*\.tiktok\.com(\/[^?]*)/, primeAlt = {};
+    var rememberUrls = function (list) {
+      var alt = null, i, m;
+      for (i = 0; i < list.length; i++) if (/\/aweme\/v1\/play\//.test(list[i])) { alt = list[i]; break; }
+      if (!alt) return;
+      for (i = 0; i < list.length; i++) if ((m = PRIME.exec(list[i]))) primeAlt[m[1]] = alt;
+    };
+    var scanUrls = function (o, depth) {
+      if (!o || typeof o !== 'object' || depth > 14) return;
+      if (Array.isArray(o)) { for (var i = 0; i < o.length; i++) scanUrls(o[i], depth + 1); return; }
+      for (var k in o) {
+        var v = o[k];
+        if (k === 'UrlList' && Array.isArray(v)) rememberUrls(v);
+        else if (v && typeof v === 'object') scanUrls(v, depth + 1);
+      }
+    };
+    var jsonParse = JSON.parse;
+    JSON.parse = function (s) {
+      var r = jsonParse.apply(this, arguments);
+      if (typeof s === 'string' && s.length > 500 && s.indexOf('"UrlList"') >= 0) { try { scanUrls(r, 0); } catch (e) {} }
+      return r;
+    };
+    if (window.Response && Response.prototype.json) {
+      var respJson = Response.prototype.json;
+      Response.prototype.json = function () {
+        return respJson.apply(this, arguments).then(function (d) { try { scanUrls(d, 0); } catch (e) {} return d; });
+      };
+    }
+    var playableUrl = function (u) {
+      var m = typeof u === 'string' && PRIME.exec(u);
+      return (m && primeAlt[m[1]]) || u;
+    };
+    var srcDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src'), setAttr = Element.prototype.setAttribute;
+    Object.defineProperty(HTMLMediaElement.prototype, 'src', { configurable: true, get: srcDesc.get,
+      set: function (u) { srcDesc.set.call(this, playableUrl(u)); } });
+    HTMLMediaElement.prototype.setAttribute = function (k, u) {
+      return setAttr.call(this, k, String(k).toLowerCase() === 'src' ? playableUrl(u) : u);
+    };
+  } catch (e) {}
+
   var KEY = { LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, OK: 13, BACK: 461, ESC: 27,
     PLAY: 415, PAUSE: 19, PLAYPAUSE: 463, CH_UP: 427, CH_DOWN: 428,
     RED: 403, GREEN: 404, YELLOW: 405, BLUE: 406 };
@@ -99,7 +147,7 @@
 
   /* ---------- toast ---------- */
   var toastEl = null, toastTm = null;
-  function toast(msg) {
+  function toast(msg, ms) {                         // ms: how long it stays (default 1.2s, -1 = until hideToast)
     if (!document.body) return;
     if (!toastEl) {
       toastEl = document.createElement('div');
@@ -108,8 +156,44 @@
       document.body.appendChild(toastEl);
     }
     toastEl.textContent = msg; toastEl.style.opacity = '1';
-    clearTimeout(toastTm); toastTm = setTimeout(function () { toastEl.style.opacity = '0'; }, 1200);
+    clearTimeout(toastTm);
+    if (ms !== -1) toastTm = setTimeout(hideToast, ms || 1200);
   }
+  function hideToast() { if (toastEl) toastEl.style.opacity = '0'; }
+
+  /* ---------- "Loading…" while TikTok switches pages ----------
+     Opening Explore, Following, Friends, Short dramas etc. takes TikTok 5-55s on the TV (its scripts keep the
+     CPU at 100%), and meanwhile the old page stays on screen, frozen, which looks like the app hung or restarted.
+     Show "Loading <page>…" from the click until the new page is drawn: TikTok removes the old page's
+     #main-content-* container and then adds the new one (pages without one, like Short dramas, count as drawn
+     once new pictures have loaded). LIVE is a real full-page load, so its message goes away with the page. */
+  var nav = null;
+  function mainContent() { return document.querySelector('[id^="main-content"]'); }
+  function newPicturesShown(seen) {
+    var imgs = document.querySelectorAll('img'), n = 0;
+    for (var i = 0; i < imgs.length && n < 3; i++) {
+      var im = imgs[i], r;
+      if (seen.indexOf(im) >= 0 || !im.complete || !im.naturalWidth) continue;
+      r = im.getBoundingClientRect();
+      if (r.width > 100 && r.left > 240 && r.top < innerHeight && r.bottom > 0) n++;
+    }
+    return n >= 3;
+  }
+  addEventListener('click', function (e) {
+    var a = e.target && e.target.closest && e.target.closest('a[href]');
+    if (!a || a.target === '_blank' || e.defaultPrevented) return;
+    var u; try { u = new URL(a.href, location.href); } catch (x) { return; }
+    if (u.origin !== location.origin || u.pathname === location.pathname) return;
+    var name = (a.innerText || '').trim().split('\n')[0].slice(0, 30);
+    toast(name ? 'Loading ' + name + '…' : 'Loading…', -1);
+    nav = { from: location.pathname, old: mainContent(), seen: [].slice.call(document.images), since: Date.now() };
+  }, true);
+  setInterval(function () {
+    if (!nav) return;
+    var mc = mainContent(), oldGone = !nav.old || !nav.old.isConnected;
+    var drawn = location.pathname !== nav.from && oldGone && ((mc && mc !== nav.old) || newPicturesShown(nav.seen));
+    if (drawn || Date.now() - nav.since > 60000) { nav = null; hideToast(); }
+  }, 500);
 
   /* ---------- zoom (CSS zoom on the root, persisted) ---------- */
   var zoom = 100;
@@ -153,7 +237,13 @@
   var style = document.createElement('style');
   // Focus ring only on real controls and on what the remote's arrows selected in dialogs (.tv-focus).
   // A bare :focus-visible also outlined TikTok's big focusable page areas (e.g. a red line along the drama player).
-  style.textContent = '::-webkit-scrollbar{display:none}' +
+  // CSS animations finish at once. TikTok runs endless decorative ones (sound-bar equalizers, pulsing LIVE
+  // avatar rings) that repaint every frame: measured on the 50UR7550, the whole TV went from 66% to 38% CPU
+  // busy with them off, leaving room for TikTok's own scripts, so videos switch sooner. Durations of 1ms
+  // rather than `animation:none` so animationend/transitionend events still fire for TikTok's UI logic.
+  style.textContent = '*,*::before,*::after{animation-duration:1ms!important;animation-iteration-count:1!important;' +
+    'animation-delay:0s!important;transition-duration:1ms!important;transition-delay:0s!important}' +
+    '::-webkit-scrollbar{display:none}' +
     'a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,' +
     '[role="button"]:focus-visible,[role="link"]:focus-visible,[role="tab"]:focus-visible,[role="option"]:focus-visible,' +
     '.tv-focus:focus{outline:4px solid #fe2c55 !important;outline-offset:2px}' +
@@ -187,8 +277,21 @@
     }
   }, 1000);
 
+  // A video taking most of the screen: a feed or player page, where Up/Down mean previous/next video.
+  // Small videos are hover previews on grid pages (Explore, Short dramas list), which just scroll.
+  function feedVideo() {
+    var v = bestVideo();
+    return v && v.getBoundingClientRect().height > innerHeight * 0.5 ? v : null;
+  }
+  function mainScroller() {
+    var se = document.scrollingElement || document.documentElement;
+    if (se.scrollHeight > se.clientHeight + 4) return se;
+    var el = document.elementFromPoint(innerWidth * 0.6, innerHeight / 2);
+    return scrollable(el || document.body);
+  }
   function page(dir) {
     if (isLive()) { var la = liveArrows(); if (la) { la[dir > 0 ? 1 : 0].click(); return; } }
+    if (!feedVideo()) { var ms = mainScroller(); ms.scrollBy({ top: dir * ms.clientHeight * 0.6, behavior: 'smooth' }); return; }
     // Let TikTok's own (trusted) arrow handling run first; scroll only if nothing moved.
     var v = bestVideo(), src = v && v.currentSrc, sc = scrollable(v || document.body), before = sc.scrollTop;
     setTimeout(function () {
@@ -368,8 +471,9 @@
       else used = false;
     } else {
       switch (k) {
-        case KEY.UP: page(-1); used = isLive() && !!liveArrows(); break;  // else let TikTok see the real key too
-        case KEY.DOWN: page(1); used = isLive() && !!liveArrows(); break;
+        // On video pages let TikTok see the real key too; on grid pages page() does all the scrolling.
+        case KEY.UP: used = (isLive() && !!liveArrows()) || !feedVideo(); page(-1); break;
+        case KEY.DOWN: used = (isLive() && !!liveArrows()) || !feedVideo(); page(1); break;
         case KEY.OK: if (onControl) used = false; else togglePlay(); break;
         case KEY.RIGHT: like(); break;
         case KEY.LEFT: toggleMute(); break;

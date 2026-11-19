@@ -1,6 +1,6 @@
 {
   "id": "com.homebrew.tiktok",
-  "version": "2.2.6",
+  "version": "2.3.0",
   "vendor": "aning & Cipher Amir, with the help of Claude",
   "type": "web",
   "main": "index.html",
@@ -11,5 +11,6 @@
   "iconColor": "#000000",
   "resolution": "1280x720",
   "disableBackHistoryAPI": true,
+  "disallowScrollingInMainFrame": false,
   "handlesRelaunch": true
 }

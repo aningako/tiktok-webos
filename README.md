@@ -81,13 +81,19 @@ The Magic Remote pointer works for clicking and scrolling everywhere.
   desktop site to it, and request signing stays consistent because the page runs on the real origin.
 - `app/com.homebrew.tiktok/webOSUserScripts/userScript.js` is injected by webOS WebAppManager into every page the app
   loads, the same mechanism [youtube-webos](https://github.com/webosbrew/youtube-webos) uses. It handles remote keys,
-  zoom, an autoplay keeper, and playback workarounds (H.264 instead of HEVC, no MediaSource-in-Worker).
+  zoom, an autoplay keeper, and playback workarounds (H.264 instead of HEVC, no MediaSource-in-Worker, and the
+  `aweme/v1/play` video URL instead of the `v*-webapp-prime` ones, which need a cookie the TV's video player doesn't
+  send). It also stops TikTok's endless CSS animations (a big CPU saving on the TV) and shows "Loading…" while
+  TikTok switches pages.
+- `appinfo.json` sets `disallowScrollingInMainFrame: false`; without it webOS ignores the Magic Remote wheel on
+  pages that scroll as a whole (Explore, the Short dramas list).
 
 ## Known issues
 
 - **Performance on low-end TVs:** tested on a 50UR7550 (webOS 10.3.1 "TV Lite", 4 cores, 1.2 GB RAM). TikTok's
-  desktop site keeps that TV's CPU busy, so the first videos after launch can take 10–15s to start and the remote
-  can lag a few seconds after each press. Close other apps (especially YouTube) so they don't hold memory or a
+  desktop site keeps that TV's CPU busy, so the first videos after launch can take 10–15s to start, the next video
+  about 7–10s, and switching pages (Explore, Following, Short dramas…) 5–55s; the remote can lag a few seconds after
+  each press. LIVE always reloads the whole page (TikTok's design). Close other apps (especially YouTube) so they don't hold memory or a
   video decoder.
 - **Video playback:** these TVs have very few hardware video decoders, and TikTok keeps off-screen videos loaded.
   Since 2.1.0 the script makes TikTok use plain MP4s and frees the off-screen videos' decoders when the on-screen

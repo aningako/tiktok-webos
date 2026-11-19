@@ -2,11 +2,25 @@
 
 All notable changes to this project. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [2.3.0]
+### Added
+- "Loading Explore…" (Following, Friends, Short dramas, …) message from clicking a menu item until TikTok has drawn
+  the new page. TikTok takes 5-55s to switch pages on the TV and leaves the old page frozen on screen meanwhile,
+  which looked like the app had hung or restarted. (LIVE really is a full page reload, by TikTok's design.)
+### Fixed
+- Videos start sooner: TikTok's first two video URLs (v*-webapp-prime) need a browser cookie that the TV's own
+  video player doesn't send, so every video failed twice (403) before TikTok tried the URL that works. The app now
+  gives the player the working www.tiktok.com/aweme/v1/play/ URL straight away.
+- Scrolling with the Magic Remote wheel/pointer on Explore, the Short dramas list and other grid pages: webOS
+  blocks user scrolling of a web app's main page unless appinfo sets `disallowScrollingInMainFrame: false`.
+- Up/Down on grid pages (Explore, Short dramas list) sometimes did nothing: their small preview videos were mistaken
+  for a feed. Pages without a large video now simply scroll.
 ### Changed
+- CSS animations and transitions finish instantly. TikTok's endless decorative animations (sound-bar equalizers,
+  pulsing LIVE rings) kept the TV's CPU busy repainting: 66% -> 38% CPU busy with them off. Spinners no longer spin.
 - Short dramas: when an episode shows "We're having trouble playing this video", the app now reloads and retries the
   same episode (up to 2 times) instead of skipping to the next episode; if it still fails it asks to press the red
-  button. For You and other feeds still skip to the next video. (Needs testing on the TV before release.)
+  button. For You and other feeds still skip to the next video.
 
 ## [2.2.6]
 ### Fixed
