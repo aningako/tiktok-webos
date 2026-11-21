@@ -2,7 +2,7 @@
 
 All notable changes to this project. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [2.6.1]
 ### Fixed
 - TV mode: "Continue watching" crashed (and kept crashing on every return home) when TikTok's history
   contained an empty entry; lists now skip empty/ID-less dramas and episodes.
