@@ -2,6 +2,31 @@
 
 All notable changes to this project. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+### Fixed
+- TV mode: "Continue watching" crashed (and kept crashing on every return home) when TikTok's history
+  contained an empty entry; lists now skip empty/ID-less dramas and episodes.
+- TV mode: opening a drama and quickly choosing an episode could load the episode list twice and play the
+  wrong episode (and save progress for the wrong one); episode lists now load one page at a time.
+- TV mode: a resume seek left over from the previous video could jump the next video (or skip a short
+  episode); Back while the next episode was still loading saved the old video's time to it.
+- TV mode: no more repeated requests after a failure (Popular, genres, feeds wait 30s; a failed home
+  recommendation isn't retried on every return home; the search Enter key doesn't re-send) and the feed
+  stops after 5 videos in a row fail instead of skipping and fetching forever (captcha risk).
+- TV mode: "Press OK to try again" now really reloads a failed video; "Episode N isn't available" and a
+  failed episode load open that drama's page (not a stale one / home); Popular is de-duplicated and says
+  so when empty; reopening a genre that failed to load tries again; no "Episode 3 of undefined".
+- Full site: Back on a dialog without a close button recursed until "Maximum call stack size exceeded"
+  and never reached TikTok; synthetic keys are now left to TikTok.
+- Full site: OK didn't pause after a pointer click on the player; a pause carried over to the next
+  video/episode when TikTok reused the <video> element; a released video could get an old URL back.
+- Full site: a drama episode failing mid-way reloaded forever (retries now reset only after the episode
+  played to the end); the autoplay keeper no longer restarts hover previews on grid pages; the
+  "Loading…" toast no longer sticks for 60s when a video or login dialog opens instead of a new page.
+### Added
+- `tools/tvsim`: offline harness for TV mode (fake API incl. a --chaos mode, test clips, remote-driven
+  walk through every screen that reports JS errors and request counts) — no TV or TikTok needed.
+
 ## [2.6.0]
 ### Added
 - **Genres** in TV mode: a Genres row on the home screen (Fantasy, Werewolf, Vampire, Martial arts,

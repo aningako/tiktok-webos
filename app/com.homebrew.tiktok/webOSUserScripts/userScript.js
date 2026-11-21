@@ -69,11 +69,12 @@
      about 5-10s per video. Remember each UrlList as TikTok receives it (page data via JSON.parse, feed
      updates via Response.json) and hand the <video> the aweme URL straight away. */
   try {
-    var PRIME = /^https?:\/\/[^/]*-webapp-prime[^/]*\.tiktok\.com(\/[^?]*)/, primeAlt = {};
+    var PRIME = /^https?:\/\/[^/]*-webapp-prime[^/]*\.tiktok\.com(\/[^?]*)/, primeAlt = {}, primeCount = 0;
     var rememberUrls = function (list) {
       var alt = null, i, m;
       for (i = 0; i < list.length; i++) if (/\/aweme\/v1\/play\//.test(list[i])) { alt = list[i]; break; }
       if (!alt) return;
+      if (++primeCount > 3000) { primeAlt = {}; primeCount = 0; }   // (bounded: one entry per video seen)
       for (i = 0; i < list.length; i++) if ((m = PRIME.exec(list[i]))) primeAlt[m[1]] = alt;
     };
     var scanUrls = function (o, depth) {
@@ -103,9 +104,11 @@
     };
     var srcDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src'), setAttr = Element.prototype.setAttribute;
     Object.defineProperty(HTMLMediaElement.prototype, 'src', { configurable: true, get: srcDesc.get,
-      set: function (u) { srcDesc.set.call(this, playableUrl(u)); } });
+      set: function (u) { this.__tvSrc = null; srcDesc.set.call(this, playableUrl(u)); } });
     HTMLMediaElement.prototype.setAttribute = function (k, u) {
-      return setAttr.call(this, k, String(k).toLowerCase() === 'src' ? playableUrl(u) : u);
+      var isSrc = String(k).toLowerCase() === 'src';
+      if (isSrc) this.__tvSrc = null;
+      return setAttr.call(this, k, isSrc ? playableUrl(u) : u);
     };
   } catch (e) {}
 
@@ -194,7 +197,9 @@
   setInterval(function () {
     if (!nav) return;
     var mc = mainContent(), oldGone = !nav.old || !nav.old.isConnected;
-    var drawn = location.pathname !== nav.from && oldGone && ((mc && mc !== nav.old) || newPicturesShown(nav.seen));
+    var moved = location.pathname !== nav.from, fv = moved && feedVideo();
+    var drawn = (moved && oldGone && ((mc && mc !== nav.old) || newPicturesShown(nav.seen))) ||
+      (moved && fv && fv.readyState >= 2) || (Date.now() - nav.since > 1500 && openDialog());
     if (drawn || Date.now() - nav.since > 60000) { nav = null; hideToast(); }
   }, 500);
 
@@ -330,10 +335,14 @@
     }, 500);
   }
   function safePlay(v) { var p = v.play(); if (p && p.catch) p.catch(function () {}); }
+  // A pause by the user belongs to that video, not to the <video> element (TikTok reuses elements for the
+  // next video/episode), so it is remembered by source.
+  function srcOf(v) { return v.currentSrc || v.getAttribute('src') || '#'; }
+  function userPaused(v) { return !!v.__tvUserPaused && v.__tvUserPaused === srcOf(v); }
   function togglePlay() {
     var v = bestVideo(); if (!v) return;
     if (v.paused) { v.__tvUserPaused = false; safePlay(v); toast('▶'); }
-    else { v.__tvUserPaused = true; v.pause(); toast('❚❚'); }
+    else { v.__tvUserPaused = srcOf(v); v.pause(); toast('❚❚'); }
   }
 
   /* ---------- autoplay keeper + stall watchdog ----------
@@ -353,7 +362,7 @@
   var lastClick = 0;
   addEventListener('mousedown', function () { lastClick = Date.now(); }, true);
   document.addEventListener('pause', function (e) {
-    if (Date.now() - lastClick < 1500 && e.target === bestVideo()) e.target.__tvUserPaused = true;
+    if (Date.now() - lastClick < 1500 && e.target === bestVideo()) e.target.__tvUserPaused = srcOf(e.target);
   }, true);
   document.addEventListener('play', function (e) {
     var v = e.target, vs = document.querySelectorAll('video');
@@ -395,10 +404,11 @@
   }
   setInterval(function () {
     if (document.hidden) return;
-    var v = bestVideo(), now = Date.now(), vs = document.querySelectorAll('video');
-    for (var i = 0; i < vs.length; i++) if (vs[i] !== v && !vs[i].paused) vs[i].pause();
+    var bv = bestVideo(), now = Date.now(), vs = document.querySelectorAll('video');
+    for (var i = 0; i < vs.length; i++) if (vs[i] !== bv && !vs[i].paused) vs[i].pause();
+    var v = bv && bv.getBoundingClientRect().height > innerHeight * 0.5 ? bv : null;   // (= feedVideo())
     if (v) restore(v);
-    if (!v || v.ended || v.__tvUserPaused || openDialog()) { wd.v = null; return; }
+    if (!v || v.ended || userPaused(v) || openDialog()) { wd.v = null; return; }
     if (v.paused) safePlay(v);
     var p = progress(v);
     if (v !== wd.v || v.currentSrc !== wd.src) { wd = { v: v, src: v.currentSrc, mark: p, since: now, step: 0 }; return; }
@@ -533,9 +543,10 @@
 
   /* ---------- key handling ---------- */
   addEventListener('keydown', function (e) {
+    if (!e.isTrusted) return;                        // keys we send to TikTok ourselves (sendKey)
     var k = e.keyCode, t = e.target || document.activeElement;
     var typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
-    var onControl = !!(t && t !== document.body && t.matches && t.matches(FOCUSABLE));
+    var onControl = !!(t && t !== document.body && t.matches && t.matches(FOCUSABLE) && !t.classList.contains('tv-nofocus'));
     var dialog = openDialog(), used = true;
     // TikTok's security check ("Drag the slider to fit the puzzle"): leave every key to the TV. The puzzle is
     // solved by holding OK on the Magic Remote and moving the pointer; taking over OK here (as for other
@@ -596,7 +607,7 @@
   setInterval(function () {                          // episode is playing: forget its retries
     if (!isDrama()) return;
     var v = bestVideo();
-    if (v && !v.paused && v.currentTime > 2) { try { sessionStorage.removeItem(dramaKey()); } catch (e) {} }
+    if (v && v.duration && v.currentTime > v.duration - 5) { try { sessionStorage.removeItem(dramaKey()); } catch (e) {} }
   }, 2000);
   var failed = { item: null, since: 0, skipped: null };
   setInterval(function () {
@@ -622,7 +633,7 @@
     }
     toast('Skipped a video that couldn’t play');
     var next = document.querySelector('button[data-e2e="feed-navigation-next"]');
-    if (next && !next.disabled && visible(next)) next.click(); else page(1);
+    if (next && !next.disabled) next.click(); else page(1);
   }, 1000);
 
   /* ---------- LIVE previews in the feed ----------
@@ -827,7 +838,11 @@
       return n;
     }
     var seenDramas = {};   // every drama any list showed, for search
-    function remember(list) { (list || []).forEach(function (d) { if (d && d.dramaID && (!seenDramas[d.dramaID] || d.themes)) seenDramas[d.dramaID] = d; }); return list || []; }
+    function remember(list) {
+      list = (list || []).filter(function (d) { return d && d.dramaID; });
+      list.forEach(function (d) { if (!seenDramas[d.dramaID] || d.themes) seenDramas[d.dramaID] = d; });
+      return list;
+    }
     var detailP = {}, recP = {};
     function detail(d) {
       return detailP[d.dramaID] || (detailP[d.dramaID] = api('/api/drama/detail/', 'dramaID=' + d.dramaID).then(function (j) { return j.dramaInfo || {}; })
@@ -931,8 +946,8 @@
     function dramaCard(d, extra) {
       var p = progGet(d.dramaID), ep = p ? p.ep : (d.shortDramaWatchHistory && d.shortDramaWatchHistory.lastWatchedEpisodeNumber);
       var g = genreOf(d);
-      return { img: coverOf(d), title: d.dramaName, sub: ep ? 'Episode ' + ep + ' of ' + d.numVideos : (d.numVideos ? d.numVideos + ' episodes' : '') + (g ? (d.numVideos ? ' · ' : '') + g : ''),
-        pct: ep ? ep / d.numVideos * 100 : 0, go: function () { (extra && extra.resume) ? resumeDrama(d) : openDrama(d); } };
+      return { img: coverOf(d), title: d.dramaName, sub: ep ? 'Episode ' + ep + (d.numVideos ? ' of ' + d.numVideos : '') : (d.numVideos ? d.numVideos + ' episodes' : '') + (g ? (d.numVideos ? ' · ' : '') + g : ''),
+        pct: ep && d.numVideos ? ep / d.numVideos * 100 : 0, go: function () { (extra && extra.resume) ? resumeDrama(d) : openDrama(d); } };
     }
     function loadHome() {
       setRow(0, 'Continue watching', [], 'Loading…');
@@ -966,25 +981,29 @@
     }
     // "Because you watched …": TikTok's recommendations for the drama watched last, same genre first,
     // leaving out dramas already in Continue watching.
-    var homeRecSeed = null;
+    var homeRecSeed = null, recFailed = {};
     function renderHomeRecs(cont) {
       var seed = cont[0];
       if (!seed) return setRow(REC, 'Recommended for you', [], 'Watch a drama and similar ones will show up here');
-      if (homeRecSeed === seed.dramaID) return; homeRecSeed = seed.dramaID;
+      if (homeRecSeed === seed.dramaID || recFailed[seed.dramaID]) return; homeRecSeed = seed.dramaID;
       recsFor(seed).then(function (list) {
         if (homeRecSeed !== seed.dramaID) return;
         var have = {}; cont.forEach(function (d) { have[d.dramaID] = 1; });
         setRow(REC, 'Because you watched ' + seed.dramaName, list.filter(function (d) { return !have[d.dramaID]; }).slice(0, 20).map(function (d) { return dramaCard(d); }),
           'No recommendations right now');
-      }).catch(function () { homeRecSeed = null; setRow(REC, 'Recommended for you', [], 'Couldn’t load recommendations'); });
+      }).catch(function () { homeRecSeed = null; recFailed[seed.dramaID] = 1; setRow(REC, 'Recommended for you', [], 'Couldn’t load recommendations'); });
     }
-    var popular = { list: [], cursor: '0', more: true, busy: false };
+    var popular = { list: [], cursor: '0', more: true, busy: false, retryAt: 0 };
     function loadPopular(first) {
-      if (popular.busy || !popular.more) return; popular.busy = true;
+      if (popular.busy || !popular.more || Date.now() < popular.retryAt) return; popular.busy = true;
       api('/api/drama/theme/drama_list/', 'count=21&coverFormat=2&oneColumnMode=true&themeType=7&from_page=&cursor=' + encodeURIComponent(popular.cursor)).then(function (j) {
-        popular.list = popular.list.concat(remember(j.dramaList)); popular.cursor = j.cursor; popular.more = !!j.hasMore && (j.dramaList || []).length > 0;
-        renderPopular();
+        var have = {}; popular.list.forEach(function (d) { have[d.dramaID] = 1; });
+        var add = remember(j.dramaList).filter(function (d) { return !have[d.dramaID]; });
+        popular.list = popular.list.concat(add); popular.cursor = j.cursor; popular.more = !!j.hasMore && add.length > 0;
+        if (!popular.list.length) setRow(POP0, 'Popular short dramas', [], 'No dramas right now. Choose Reload above to try again.');
+        else renderPopular();
       }).catch(function (e) {
+        popular.retryAt = Date.now() + 30000;   // (no request on every keypress after a failure: captcha risk)
         if (first) setRow(POP0, 'Popular short dramas', [], 'Could not load dramas (' + e.message + '). Choose Reload above to try again.');
       }).then(function () { popular.busy = false; });
     }
@@ -1026,12 +1045,15 @@
       if (name === 'home') { renderContinue(); focusCard(pos.r, pos.c[pos.r] || 0); }
     }
     function loadEpisodes(dr, upTo) {
+      if (dr.loading) return dr.loading.then(function () { return loadEpisodes(dr, upTo); });
       if (dr.eps.length >= upTo || !dr.more) return Promise.resolve();
-      return api('/api/drama/episode/item_list/', 'dramaID=' + dr.d.dramaID + '&cursor=' + dr.cursor + '&count=30').then(function (j) {
-        dr.eps = dr.eps.concat(j.itemList || []); dr.cursor = j.cursor; dr.more = !!j.hasMore && (j.itemList || []).length > 0;
+      dr.loading = api('/api/drama/episode/item_list/', 'dramaID=' + dr.d.dramaID + '&cursor=' + dr.cursor + '&count=30').then(function (j) {
+        var items = (j.itemList || []).filter(Boolean);
+        dr.eps = dr.eps.concat(items); dr.cursor = j.cursor; dr.more = !!j.hasMore && items.length > 0;
         if (j.totalEpisodeCount) dr.total = j.totalEpisodeCount;
-        return loadEpisodes(dr, upTo);
-      });
+        dr.loading = null;
+      }, function (e) { dr.loading = null; throw e; });
+      return dr.loading.then(function () { return loadEpisodes(dr, upTo); });
     }
     function newDrama(d) { return { d: d, eps: [], total: d.numVideos || 0, cursor: '0', more: true }; }
     function openDrama(d, opts) {
@@ -1187,7 +1209,8 @@
     }
     function runSearch() {
       var q = document.getElementById('tv-sin').value.trim(); if (!q) return;
-      var token = ++srch.busy; srch.q = q;
+      if (q === srch.q && srch.running) return;   // (the TV keyboard's Enter again: don't send another request)
+      var token = ++srch.busy; srch.q = q; srch.running = true;
       var found = {}, list = [];
       function add(ds) { ds.forEach(function (d) { if (!found[d.dramaID]) { found[d.dramaID] = 1; list.push(seenDramas[d.dramaID] || d); } }); }
       add(localMatches(q)); renderSearch(list, 'Searching TikTok…');
@@ -1196,7 +1219,7 @@
       var plan = [[q + ' drama', 0], [q + ' drama', 1], [q + ' short drama', 0], [q, 0]], cursors = {};
       (function next(n) {
         if (token !== srch.busy) return;
-        if (n >= plan.length) return renderSearch(list, 'No dramas found for “' + q + '”. Try the drama’s name or a genre like fantasy or revenge.', true);
+        if (n >= plan.length) { srch.running = false; return renderSearch(list, 'No dramas found for “' + q + '”. Try the drama’s name or a genre like fantasy or revenge.', true); }
         var kw = plan[n][0], off = plan[n][1] ? cursors[kw] : 0;
         if (off == null) return next(n + 1);
         api('/api/search/general/full/', 'keyword=' + encodeURIComponent(kw) + '&offset=' + off + '&search_source=normal_search').then(function (j) {
@@ -1280,8 +1303,8 @@
     }
     var gen = { g: null, items: [], list: [], line: 0, col: 0, cursor: '0', more: true, busy: false, from: null, fromDrama: null };
     function openGenre(g) {
-      if (!gen.g || gen.g.id !== g.id) {
-        gen.g = g; gen.list = []; gen.items = []; gen.line = 0; gen.col = 0; gen.cursor = '0'; gen.more = true; gen.busy = false; gen.token = (gen.token || 0) + 1;
+      if (!gen.g || gen.g.id !== g.id || (!gen.list.length && !gen.busy)) {
+        gen.g = g; gen.list = []; gen.items = []; gen.line = 0; gen.col = 0; gen.cursor = '0'; gen.more = true; gen.busy = false; gen.retryAt = 0; gen.token = (gen.token || 0) + 1;
         document.querySelector('#tv-genre h1').textContent = g.name;
         document.getElementById('tv-gres').innerHTML = '<div class="tv-msg">Loading…</div>';
         moreGenre();
@@ -1291,7 +1314,7 @@
     }
     function showGenre() { show('genre'); if (gen.items.length) genreFocus(gen.line, gen.col); }
     function moreGenre() {
-      if (gen.busy || !gen.more) return; gen.busy = true;
+      if (gen.busy || !gen.more || Date.now() < (gen.retryAt || 0)) return; gen.busy = true;
       var t = gen.token, g = gen.g;
       api('/api/drama/theme/drama_list/', 'themeType=10&count=21&coverFormat=2&oneColumnMode=true&tagIDList=' + encodeURIComponent(g.id) + '&cursor=' + encodeURIComponent(gen.cursor)).then(function (j) {
         if (t !== gen.token) return;
@@ -1300,6 +1323,7 @@
         gen.list = gen.list.concat(add); gen.cursor = j.cursor; gen.more = !!j.hasMore && add.length > 0;
         renderGenre();
       }).catch(function (e) {
+        if (t === gen.token) gen.retryAt = Date.now() + 30000;
         if (t === gen.token && !gen.list.length) document.getElementById('tv-gres').innerHTML = '<div class="tv-msg">Couldn’t load ' + esc(g.name) + ' dramas (' + esc(e.message) + ')</div>';
       }).then(function () { if (t === gen.token) gen.busy = false; });
     }
@@ -1345,9 +1369,11 @@
     }
 
     /* ---------- player ---------- */
-    var video, ov, cur = null, ovTm, saveTm;   // cur: { kind:'drama'|'feed', ... }
+    var video, ov, cur = null, ovTm, saveTm, seekFn = null, feedErrors = 0;   // cur: { kind:'drama'|'feed', ... }
+    function clearSeek() { if (seekFn) { video.removeEventListener('loadedmetadata', seekFn); seekFn = null; } }
     function stopVideo() {
       if (!video) return;
+      clearSeek();
       try { video.pause(); video.removeAttribute('src'); video.load(); } catch (e) {}
       clearInterval(saveTm); cur = null;
     }
@@ -1361,24 +1387,28 @@
       var spin = document.getElementById('tv-spin');
       show('player'); spin.style.display = 'block';
       if (!url) { spin.style.display = 'none'; toast('This video can’t be played here', 2500); return false; }
+      clearSeek();
       video.src = url;
-      if (startAt > 3) video.addEventListener('loadedmetadata', function f() { video.removeEventListener('loadedmetadata', f); try { video.currentTime = startAt - 2; } catch (e) {} });
+      if (startAt > 3) {
+        seekFn = function () { clearSeek(); if (video.getAttribute('src') === url) { try { video.currentTime = startAt - 2; } catch (e) {} } };
+        video.addEventListener('loadedmetadata', seekFn);
+      }
       var p = video.play(); if (p && p.catch) p.catch(function () {});
       return true;
     }
     function playEpisode(dr, ep, startAt) {
       show('player');
-      var c = cur = { kind: 'drama', dr: dr, ep: ep };
+      var c = cur = { kind: 'drama', dr: dr, ep: ep, startAt: startAt || 0 };
       showOv(dr.d.dramaName, 'Episode ' + ep + (dr.total ? ' of ' + dr.total : ''));
       document.getElementById('tv-spin').style.display = 'block';
       loadEpisodes(dr, ep).then(function () {
         if (cur !== c) return;
         var item = dr.eps[ep - 1];
-        if (!item) { toast('Episode ' + ep + ' isn’t available', 2500); return show(drama ? 'drama' : 'home'); }
-        if (play(playUrl(item), startAt)) progSet(dr.d, ep, startAt || 0);
+        if (!item) { toast('Episode ' + ep + ' isn’t available', 2500); return openDrama(dr.d); }
+        if (play(playUrl(item), startAt)) { c.started = true; progSet(dr.d, ep, startAt || 0); }
         clearInterval(saveTm);
         saveTm = setInterval(function () { if (cur === c && video.currentTime > 0) progSet(dr.d, ep, video.currentTime); }, 5000);
-      }).catch(function (e) { toast('Couldn’t load the episode (' + e.message + ')', 3000); show('home'); });
+      }).catch(function (e) { if (cur !== c) return; toast('Couldn’t load the episode (' + e.message + ')', 3000); openDrama(dr.d); });
     }
     // For You and Following: each keeps its own list and position. For You returns new videos on every call;
     // Following pages with a cursor.
@@ -1389,14 +1419,15 @@
     }, feed = feeds.fyp;
     function moreFeed(f) {
       if (f.busy) return f.busy;
-      if (f.more === false) return Promise.resolve();
+      if (f.more === false || Date.now() < (f.retryAt || 0)) return Promise.resolve();
       f.busy = api(f.path, f.q + (f.cursor != null ? '&cursor=' + encodeURIComponent(f.cursor) : '')).then(function (j) {
         var seen = {}, added = 0;
         f.items.forEach(function (it) { seen[it.id] = 1; });
         (j.itemList || []).forEach(function (it) { if (playUrl(it) && !it.imagePost && !seen[it.id]) { seen[it.id] = 1; f.items.push(it); added++; } });
         // (Following answers with cursor "0" again; stop once a page brings nothing new)
         if (f.cursor != null) { f.cursor = j.cursor; f.more = !!j.hasMore && added > 0; }
-      }).catch(function (e) { toast('Couldn’t load videos (' + e.message + ')', 2500); })
+        else if (!added) f.retryAt = Date.now() + 30000;
+      }).catch(function (e) { f.retryAt = Date.now() + 30000; toast('Couldn’t load videos (' + e.message + ')', 2500); })
         .then(function () { f.busy = null; });
       return f.busy;
     }
@@ -1423,11 +1454,12 @@
     }
     function playerKey(k) {
       if (k === K.BACK || k === K.ESC) {
-        if (cur && cur.kind === 'drama') { var d = cur.dr.d; progSet(d, cur.ep, video.currentTime); openDrama(d); }
+        if (cur && cur.kind === 'drama') { var d = cur.dr.d; progSet(d, cur.ep, cur.started && video.currentTime > 0 ? video.currentTime : cur.startAt); openDrama(d); }
         else show('home');
       } else if (k === K.DOWN) step(1);
       else if (k === K.UP) step(-1);
       else if (k === K.OK || k === K.PLAY || k === K.PAUSE || k === K.PLAYPAUSE) {
+        if (video.error && cur) { if (cur.kind === 'drama') playEpisode(cur.dr, cur.ep, cur.startAt); else feedGo(feed.i); return true; }
         if (video.paused) { var p = video.play(); if (p && p.catch) p.catch(function () {}); toast('▶'); } else { video.pause(); toast('❚❚'); }
         showOv();
       } else if (k === K.LEFT || k === K.RW) { video.currentTime = Math.max(0, video.currentTime - 10); toast('« 10s'); showOv(); }
@@ -1442,19 +1474,22 @@
       build();
       video = document.getElementById('tv-video'); ov = document.getElementById('tv-ov');
       var spin = document.getElementById('tv-spin');
-      video.addEventListener('playing', function () { spin.style.display = 'none'; showOv(); });
+      video.addEventListener('playing', function () { spin.style.display = 'none'; feedErrors = 0; showOv(); });
       video.addEventListener('waiting', function () { spin.style.display = 'block'; });
       video.addEventListener('timeupdate', function () {
         if (video.duration) ov.querySelector('.bar i').style.width = (video.currentTime / video.duration * 100) + '%';
       });
       video.addEventListener('ended', function () {
-        if (cur && cur.kind === 'drama') progSet(cur.dr.d, Math.min(cur.ep + 1, cur.dr.total || cur.ep + 1), 0);
+        if (cur && cur.kind === 'drama') progSet(cur.dr.d, cur.dr.total ? Math.min(cur.ep + 1, cur.dr.total) : cur.ep, 0);
         step(1);
       });
       video.addEventListener('error', function () {
         if (!cur || !video.getAttribute('src')) return;
         spin.style.display = 'none';
-        if (cur.kind === 'feed') { toast('Skipped a video that couldn’t play', 2000); setTimeout(function () { step(1); }, 800); }
+        if (cur.kind === 'feed') {
+          if (++feedErrors >= 5) { feedErrors = 0; toast('Videos aren’t playing right now. Try again later.', 4000); return show('home'); }
+          var c = cur; toast('Skipped a video that couldn’t play', 2000); setTimeout(function () { if (cur === c) step(1); }, 800);
+        }
         else toast('The episode didn’t play. Press OK to try again.', 4000);
       });
       document.addEventListener('visibilitychange', function () { if (document.hidden && video && !video.paused) video.pause(); });
