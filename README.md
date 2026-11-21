@@ -29,7 +29,7 @@ Captured on a real TV (LG 50UR7550, webOS 10.3.1) with the TV's own screen captu
    ```
 3. Go back to the app list, open **TikTok (unofficial)** and select **Install**.
 
-New versions then show up in Homebrew Channel like any other app. Works on rooted and non-rooted (Dev Mode) TVs.
+New versions then show up in Homebrew Channel like any other app. Tested on a rooted TV; nothing in the app uses root, so non-rooted (Developer Mode) TVs should work too (see below).
 
 **Manual download:** get `com.homebrew.tiktok_<version>_all.ipk` from the
 [latest release](https://github.com/aningako/tiktok-webos/releases/latest).
@@ -49,6 +49,28 @@ ares-setup-device                      # add your TV once
 ares-install -d <tv> releases/com.homebrew.tiktok_<version>_all.ipk
 ares-launch  -d <tv> com.homebrew.tiktok
 ```
+
+### Non-rooted TV (LG Developer Mode)
+
+No root needed: nothing in this app uses root (tested on a rooted TV so far; reports from non-rooted TVs welcome). You install it through LG's own **Developer Mode**:
+
+1. Create a free account on the [LG webOS TV Developer site](https://webostv.developer.lge.com/).
+2. On the TV, install the **Developer Mode** app from LG's app store. Open it, sign in with that account, and turn on **Dev Mode Status**. The TV restarts.
+3. Open Developer Mode again and turn on **Key Server**.
+4. Install the app from a computer, either with [webOS Dev Manager](https://github.com/webosbrew/dev-manager-desktop) (add the TV, then install the `.ipk` from the
+   [latest release](https://github.com/aningako/tiktok-webos/releases/latest)), or with LG's webOS CLI:
+   ```sh
+   ares-setup-device                          # add the TV: its IP, port 9922, user "prisoner"
+   ares-novacom --device <tv> --getkey        # enter the passphrase shown in the Developer Mode app
+   ares-install --device <tv> com.homebrew.tiktok_<version>_all.ipk
+   ```
+   Homebrew Channel can also be installed this way, and then the repository above works too (its root-only features stay off).
+
+**Keep the Developer Mode session alive.** Developer Mode lasts a limited time; the app shows the remaining time and has an **EXTEND** button
+(the TV must be online). LG's rules ([source](https://webostv.developer.lge.com/develop/getting-started/developer-mode-app)): once the time has run out
+it can't be extended, and when Developer Mode turns off (after a restart with no time left, or ten restarts without a network connection), the apps
+installed with it are **uninstalled**. That is LG's limit, not this app's; reinstall the `.ipk` after turning Developer Mode back on.
+webOS Dev Manager can schedule the renewal for you.
 
 Upgrading from 1.x: uninstall the old version first. 1.x included a proxy service that 2.x no longer uses.
 
