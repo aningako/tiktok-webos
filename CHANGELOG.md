@@ -2,6 +2,23 @@
 
 All notable changes to this project. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.6.2]
+### Fixed
+- **Videos stuck on "loading" everywhere** (TV mode For You/Following/Explore and the full site): a video player
+  that hung while loading kept the TV's hardware decoders, so no other video could start until the app was
+  closed. Every video is now unloaded when a page is left (full site <-> TV mode, reloads), and in TV mode a video
+  with no data after 15s is unloaded and skipped (feeds) or offered for retry (episodes) instead of spinning.
+- Following in TV mode now pages the way TikTok does (level 1, then level 2 with real cursors, stepping over
+  empty pages) and stops when TikTok repeats itself.
+- Search: Enter closes the TV's on-screen keyboard so all results are visible (it covered all but the first line).
+- Back twice on the TV-mode home screen didn't exit on webOS 10 (`platformBack()` does nothing on tiktok.com
+  pages); the app now closes with `window.close()` (memory and decoders freed).
+### QA (LG 50UR7550, webOS 10.3.1)
+- Passed: home rows, drama page (tags, episodes, More like this), player (pause, ±10s, next/previous, auto-next,
+  progress), genre grid with paging, search, For You/Following/Explore incl. resume, full site feed, side menu,
+  Short dramas page and episodes, Back route to TV mode, reload, relaunch, decoder release.
+- `tools/tvsim`: `--hang` mode and `hang_test.py` for the loading timeout; Following paging emulated.
+
 ## [2.6.1]
 ### Fixed
 - TV mode: "Continue watching" crashed (and kept crashing on every return home) when TikTok's history

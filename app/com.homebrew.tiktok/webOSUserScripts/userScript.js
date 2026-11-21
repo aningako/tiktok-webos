@@ -6,6 +6,13 @@
 (function () {
   if (window.top !== window) return;               // not inside captcha/login iframes
   if (window.__tvInjected) return; window.__tvInjected = true;
+  // Leaving a page (full site <-> TV mode, reloads): unload every video so its hardware decoder is freed. On the TV
+  // a player stuck "loading" kept the decoders after the page changed, and then no video played anywhere until the
+  // app was closed (seen 2026-11-21: For You/Following/Explore and the full site all stuck on loading).
+  addEventListener('pagehide', function () {
+    var vs = document.querySelectorAll('video');
+    for (var i = 0; i < vs.length; i++) { try { vs[i].pause(); vs[i].removeAttribute('src'); vs[i].load(); } catch (e) {} }
+  });
   // TV mode: the app's own light player (see tvMode at the end), on a bare tiktok.com document.
   var TV_URL = 'https://www.tiktok.com/robots.txt?tv=1';
   if (location.pathname === '/robots.txt' && /[?&]tv=1/.test(location.search)) return tvMode();
@@ -471,10 +478,14 @@
     if (best) { (best.closest('button') || best).click(); toast('♥'); }
     else sendKey('l', 'KeyL', 76, document.body);
   }
+  // window.close() first: it closes the app for real (memory and video decoders freed). platformBack() exists on
+  // tiktok.com pages but did nothing on webOS 10.3 (QA 2026-11-21), so it is only the fallback.
   function exitApp() {
-    try { if (window.webOSSystem && webOSSystem.platformBack) return webOSSystem.platformBack(); } catch (e) {}
-    try { if (window.PalmSystem && PalmSystem.platformBack) return PalmSystem.platformBack(); } catch (e) {}
-    window.close();
+    try { window.close(); } catch (e) {}
+    setTimeout(function () {
+      try { if (window.webOSSystem && webOSSystem.platformBack) return webOSSystem.platformBack(); } catch (e) {}
+      try { if (window.PalmSystem && PalmSystem.platformBack) PalmSystem.platformBack(); } catch (e) {}
+    }, 300);
   }
   /* ---------- phone-app look: feed pages full screen, menu on demand (styles above) ---------- */
   var ROOT = document.documentElement;
@@ -716,10 +727,14 @@
     }).catch(function () {});
     var E = function (tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
     function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+    // window.close() first: it closes the app for real (memory and video decoders freed). platformBack() exists on
+    // tiktok.com pages but did nothing on webOS 10.3 (QA 2026-11-21), so it is only the fallback.
     function exit() {
-      try { if (window.webOSSystem && webOSSystem.platformBack) return webOSSystem.platformBack(); } catch (e) {}
-      try { if (window.PalmSystem && PalmSystem.platformBack) return PalmSystem.platformBack(); } catch (e) {}
-      window.close();
+      try { window.close(); } catch (e) {}
+      setTimeout(function () {
+        try { if (window.webOSSystem && webOSSystem.platformBack) return webOSSystem.platformBack(); } catch (e) {}
+        try { if (window.PalmSystem && PalmSystem.platformBack) PalmSystem.platformBack(); } catch (e) {}
+      }, 300);
     }
     function fullSite(path) { location.href = 'https://www.tiktok.com' + (path || '/foryou'); }
 
@@ -1262,8 +1277,14 @@
     }
     function searchKey(k) {
       if (srch.line < 0) {   // typing in the box (the TV's on-screen keyboard handles letters)
-        if (k === K.OK) { runSearch(); return true; }
-        if (k === K.DOWN) { if (srch.items.length) searchFocus(0, 0); return true; }
+        if (k === K.OK) {
+          // Enter starts the search and closes the TV's on-screen keyboard (it covered all results but the first
+          // line); OK on the box again opens the keyboard for a new search.
+          var si = document.getElementById('tv-sin');
+          if (document.activeElement !== si) { si.focus(); return true; }
+          runSearch(); si.blur(); return true;
+        }
+        if (k === K.DOWN) { if (srch.items.length) { document.getElementById('tv-sin').blur(); searchFocus(0, 0); } return true; }
         if (k === K.BACK || k === K.ESC) { show('home'); return true; }
         return false;
       }
@@ -1369,11 +1390,11 @@
     }
 
     /* ---------- player ---------- */
-    var video, ov, cur = null, ovTm, saveTm, seekFn = null, feedErrors = 0;   // cur: { kind:'drama'|'feed', ... }
+    var video, ov, cur = null, ovTm, saveTm, seekFn = null, feedErrors = 0, loadTm = null;   // cur: { kind:'drama'|'feed', ... }
     function clearSeek() { if (seekFn) { video.removeEventListener('loadedmetadata', seekFn); seekFn = null; } }
     function stopVideo() {
       if (!video) return;
-      clearSeek();
+      clearSeek(); clearTimeout(loadTm);
       try { video.pause(); video.removeAttribute('src'); video.load(); } catch (e) {}
       clearInterval(saveTm); cur = null;
     }
@@ -1389,12 +1410,31 @@
       if (!url) { spin.style.display = 'none'; toast('This video can’t be played here', 2500); return false; }
       clearSeek();
       video.src = url;
+      // No data after 15s: the TV's player can hang in "loading" without ever reporting an error, holding a hardware
+      // decoder. Unload it (frees the decoder) and treat it as a failed video.
+      clearTimeout(loadTm);
+      loadTm = setTimeout(function () {
+        if (video.getAttribute('src') !== url || video.readyState >= 2) return;
+        try { video.removeAttribute('src'); video.load(); } catch (e) {}
+        mediaFailed();
+      }, 15000);
       if (startAt > 3) {
         seekFn = function () { clearSeek(); if (video.getAttribute('src') === url) { try { video.currentTime = startAt - 2; } catch (e) {} } };
         video.addEventListener('loadedmetadata', seekFn);
       }
       var p = video.play(); if (p && p.catch) p.catch(function () {});
       return true;
+    }
+    // A video that failed (error event, or no data after 15s): skip it in feeds (at most 5 in a row), offer OK to retry episodes.
+    function mediaFailed() {
+      if (!cur) return;
+      clearTimeout(loadTm); cur.failed = true;
+      document.getElementById('tv-spin').style.display = 'none';
+      if (cur.kind === 'feed') {
+        if (++feedErrors >= 5) { feedErrors = 0; toast('Videos aren’t playing right now. Try again later.', 4000); return show('home'); }
+        var c = cur; toast('Skipped a video that couldn’t play', 2000); setTimeout(function () { if (cur === c) step(1); }, 800);
+      }
+      else toast('The episode didn’t play. Press OK to try again.', 4000);
     }
     function playEpisode(dr, ep, startAt) {
       show('player');
@@ -1415,19 +1455,31 @@
     var feeds = {
       fyp: { path: '/api/recommend/item_list/', q: 'count=8&from_page=fyp&os=linux&screen_height=1080&screen_width=1920', items: [], i: -1 },
       explore: { path: '/api/explore/item_list/', q: 'categoryType=120&count=8&enable_cache=false&pullType=1&store_region=' + REGION, items: [], i: -1 },
-      following: { path: '/api/following/item_list/', q: 'count=9&coverFormat=2&from_page=following&pullType=1&level=1&isNonPersonalized=false&isResetCounterUsed=true', items: [], i: -1, cursor: '0', more: true }
+      // Following pages in two steps (seen 2026-11-21): level=1 gives the newest videos and always answers cursor "0";
+      // level=2 then walks back in time with real cursors (some pages empty while hasMore stays true).
+      following: { path: '/api/following/item_list/', q: 'count=9&coverFormat=2&from_page=following&isNonPersonalized=false&isResetCounterUsed=true', items: [], i: -1, cursor: '0', level: 1, more: true }
     }, feed = feeds.fyp;
     function moreFeed(f) {
       if (f.busy) return f.busy;
       if (f.more === false || Date.now() < (f.retryAt || 0)) return Promise.resolve();
-      f.busy = api(f.path, f.q + (f.cursor != null ? '&cursor=' + encodeURIComponent(f.cursor) : '')).then(function (j) {
-        var seen = {}, added = 0;
-        f.items.forEach(function (it) { seen[it.id] = 1; });
-        (j.itemList || []).forEach(function (it) { if (playUrl(it) && !it.imagePost && !seen[it.id]) { seen[it.id] = 1; f.items.push(it); added++; } });
-        // (Following answers with cursor "0" again; stop once a page brings nothing new)
-        if (f.cursor != null) { f.cursor = j.cursor; f.more = !!j.hasMore && added > 0; }
-        else if (!added) f.retryAt = Date.now() + 30000;
-      }).catch(function (e) { f.retryAt = Date.now() + 30000; toast('Couldn’t load videos (' + e.message + ')', 2500); })
+      var empties = 0;
+      function page() {
+        var q = f.q + (f.level ? '&pullType=' + (f.level > 1 ? 2 : 1) + '&level=' + f.level : '') +
+          (f.cursor != null ? '&cursor=' + encodeURIComponent(f.cursor) : '');
+        return api(f.path, q).then(function (j) {
+          var seen = {}, added = 0;
+          f.items.forEach(function (it) { seen[it.id] = 1; });
+          (j.itemList || []).forEach(function (it) { if (it && playUrl(it) && !it.imagePost && !seen[it.id]) { seen[it.id] = 1; f.items.push(it); added++; } });
+          if (f.level === 1) { f.level = 2; f.cursor = '0'; f.more = true; }
+          else if (f.cursor != null) {
+            var stuck = String(j.cursor) === String(f.cursor);
+            f.cursor = j.cursor; f.more = !!j.hasMore && !stuck && j.cursor != null;
+          } else if (!added) f.retryAt = Date.now() + 30000;
+          // nothing new on this page but more to come: look a little further (at most 3 pages, 1s apart)
+          if (!added && f.more && f.cursor != null && ++empties <= 3) return new Promise(function (ok) { setTimeout(ok, 1000); }).then(page);
+        });
+      }
+      f.busy = page().catch(function (e) { f.retryAt = Date.now() + 30000; toast('Couldn’t load videos (' + e.message + ')', 2500); })
         .then(function () { f.busy = null; });
       return f.busy;
     }
@@ -1459,7 +1511,7 @@
       } else if (k === K.DOWN) step(1);
       else if (k === K.UP) step(-1);
       else if (k === K.OK || k === K.PLAY || k === K.PAUSE || k === K.PLAYPAUSE) {
-        if (video.error && cur) { if (cur.kind === 'drama') playEpisode(cur.dr, cur.ep, cur.startAt); else feedGo(feed.i); return true; }
+        if ((video.error || (cur && cur.failed)) && cur) { if (cur.kind === 'drama') playEpisode(cur.dr, cur.ep, cur.startAt); else feedGo(feed.i); return true; }
         if (video.paused) { var p = video.play(); if (p && p.catch) p.catch(function () {}); toast('▶'); } else { video.pause(); toast('❚❚'); }
         showOv();
       } else if (k === K.LEFT || k === K.RW) { video.currentTime = Math.max(0, video.currentTime - 10); toast('« 10s'); showOv(); }
@@ -1483,15 +1535,7 @@
         if (cur && cur.kind === 'drama') progSet(cur.dr.d, cur.dr.total ? Math.min(cur.ep + 1, cur.dr.total) : cur.ep, 0);
         step(1);
       });
-      video.addEventListener('error', function () {
-        if (!cur || !video.getAttribute('src')) return;
-        spin.style.display = 'none';
-        if (cur.kind === 'feed') {
-          if (++feedErrors >= 5) { feedErrors = 0; toast('Videos aren’t playing right now. Try again later.', 4000); return show('home'); }
-          var c = cur; toast('Skipped a video that couldn’t play', 2000); setTimeout(function () { if (cur === c) step(1); }, 800);
-        }
-        else toast('The episode didn’t play. Press OK to try again.', 4000);
-      });
+      video.addEventListener('error', function () { if (video.getAttribute('src')) mediaFailed(); });
       document.addEventListener('visibilitychange', function () { if (document.hidden && video && !video.paused) video.pause(); });
       addEventListener('keydown', function (e) {
         var k = e.keyCode, used;

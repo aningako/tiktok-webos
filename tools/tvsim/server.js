@@ -11,7 +11,7 @@
 'use strict';
 const http = require('http');
 const arg = (n, d) => { const i = process.argv.indexOf(n); return i > 0 ? process.argv[i + 1] : d; };
-const PORT = +arg('--port', 8090), CHAOS = process.argv.includes('--chaos');
+const PORT = +arg('--port', 8090), CHAOS = process.argv.includes('--chaos'), HANG = process.argv.includes('--hang');   // --hang: videos never send data (TV player stuck on loading)
 let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 const counts = {};
 
@@ -56,7 +56,13 @@ function answer(path, q) {
     case '/api/search/general/full/': return { status_code: 0, data: page(10, (i) => ({ item: video(5000 + i * 10) })), has_more: cursor < 30 ? 1 : 0, cursor: cursor + 10 };
     case '/api/recommend/item_list/':
     case '/api/explore/item_list/': return { statusCode: 0, itemList: page(8, (i) => video(10000 + Math.floor(rnd() * 1e6))), hasMore: true };
-    case '/api/following/item_list/': return { statusCode: 0, itemList: page(9, (i) => video(20000 + (i % 12))), hasMore: true, cursor: '0' };  // repeats like TikTok
+    case '/api/following/item_list/': {   // like TikTok: level=1 always cursor "0"; level=2 pages back in time (some pages empty)
+      if (q.get('level') !== '2') return { statusCode: 0, itemList: Array.from({ length: 7 }, (_, k) => video(20000 + k)), hasMore: true, cursor: '0', level: 1 };
+      const c = +q.get('cursor') || 0, n = c / 1000;               // page number
+      if (n >= 8) return { statusCode: 0, itemList: [], hasMore: false, cursor: String(c + 1000), level: 2 };
+      const items = n % 3 === 2 ? [] : Array.from({ length: 5 }, (_, k) => video(21000 + n * 10 + k));
+      return { statusCode: 0, itemList: items, hasMore: true, cursor: String(c + 1000), level: 2 };
+    }
   }
   return { statusCode: 404 };
 }
@@ -72,6 +78,7 @@ http.createServer((req, res) => {
   }
   if (u.pathname === '/mock/sdk.js') { res.writeHead(200, { 'Content-Type': 'text/javascript' }); return res.end(SDK); }
   if (u.pathname === '/__counts') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify(counts)); }
+  if (u.pathname.startsWith('/aweme/') && HANG) return;        // never answer
   if (u.pathname.startsWith('/aweme/')) {                    // test clips (tools/tvsim/make_media.sh), with Range support
     const id = +(u.searchParams.get('video_id') || 0), f = require('path').join(__dirname, 'media', 'clip' + (id % 10) + '.mp4');
     if (!require('fs').existsSync(f)) { res.writeHead(404); return res.end(); }
