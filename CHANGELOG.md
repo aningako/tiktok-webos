@@ -2,6 +2,22 @@
 
 All notable changes to this project. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.6.0]
+### Added
+- **Genres** in TV mode: a Genres row on the home screen (Fantasy, Werewolf, Vampire, Martial arts,
+  Post-apocalyptic, Revenge, Mystery… TikTok's own list of 60+ genres). Choosing one opens all its dramas as a grid,
+  7 per line, that keeps loading as you go down. Same filter as the genre buttons in TikTok's Short dramas section.
+- **Genre tags on the drama page**: press Up from Play to reach them; OK on a tag lists that genre.
+- **More like this** on the drama page: TikTok's recommendations for that drama, the ones sharing its genre
+  first. Press Down from the last line of episodes to reach it. After the last episode the app goes there.
+- **Because you watched …** row on the home screen: recommendations for the drama watched last.
+- **Search dramas** (first card in the TikTok row): type a drama's name or a genre with the TV keyboard, OK to
+  search. Uses TikTok's search and keeps the drama results, plus dramas the app has already listed that match.
+### Known limits
+- TikTok has no "Sci-fi" genre; the closest are Post-apocalyptic, Infinite worlds, System quests, Transmigration.
+- Search usually finds a handful of dramas and takes 15-25s (TikTok has no drama-only search; about 1 in 10 of
+  its results is a drama).
+
 ## [2.5.0]
 ### Added
 - **TV mode**, the app's new home screen: a light player of its own instead of TikTok's heavy desktop site.

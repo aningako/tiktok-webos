@@ -1,6 +1,6 @@
 {
   "name": "tiktok-webos",
-  "version": "2.5.0",
+  "version": "2.6.0",
   "description": "Unofficial TikTok (desktop site) app for LG webOS TVs, homebrew IPK. Made for Pie Amolong, to watch AI dramas on an LG TV.",
   "license": "MIT",
   "scripts": {

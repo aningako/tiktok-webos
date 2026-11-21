@@ -732,8 +732,15 @@
         '.tv-card.wide .ico{font-size:34px;margin-bottom:6px;height:34px}.tv-card.wide .t{height:auto;font-size:18px;font-weight:600}.tv-card.wide .s{padding:4px 0 0}' +
         '.tv-card.focus{outline-color:#fe2c55;transform:scale(1.06);z-index:2}' +
         '.tv-msg{color:#aaa;font-size:16px;padding:20px 4px}' +
-        '#tv-drama{position:fixed;inset:0;display:none;padding:40px 48px;background:#000}' +
+        '#tv-drama{position:fixed;inset:0;display:none;padding:40px 48px;background:#000;overflow:hidden}' +
+        '#tv-dwrap{transition:transform .2s}#tv-drama .recs h2{font-size:20px;font-weight:600;color:#ddd;margin:0 0 10px}#tv-drama .recs{margin-top:26px}#tv-drama .recs .tv-track{padding-left:4px}' +
+        '#tv-search{position:fixed;inset:0;display:none;padding:34px 0 0 48px;background:#000;overflow:hidden}' +
+        '#tv-search h1{margin:0 0 14px;font-size:28px}#tv-sin{width:640px;height:54px;border-radius:27px;border:3px solid #444;background:#1c1c22;color:#fff;font-size:22px;padding:0 24px;outline:none}' +
+        '#tv-sin.focus,#tv-sin:focus{border-color:#fe2c55}#tv-sres{transition:transform .2s}' +
+        '#tv-genre{position:fixed;inset:0;display:none;padding:34px 0 0 48px;background:#000;overflow:hidden}#tv-genre h1{margin:0 0 6px;font-size:28px}#tv-gres{transition:transform .2s}' +
+        '#tv-drama .tags span.focus{outline:3px solid #fff;background:#fe2c55;color:#fff}' +
         '#tv-drama .top{display:flex;gap:28px}#tv-drama .top img{width:180px;height:240px;object-fit:cover;border-radius:10px;background:#222}' +
+        '#tv-drama .tags{margin:0 0 12px}#tv-drama .tags span{display:inline-block;margin:0 8px 6px 0;padding:3px 12px;border-radius:14px;background:#2a2a33;color:#ccc;font-size:14px}' +
         '#tv-drama h2{margin:0 0 10px;font-size:30px}#tv-drama p{margin:0 0 16px;color:#bbb;font-size:15px;line-height:1.4;max-width:820px;max-height:126px;overflow:hidden}' +
         '#tv-drama .eps{display:flex;flex-wrap:wrap;gap:10px;margin-top:24px;max-height:290px;overflow:hidden}' +
         '#tv-drama .ep,#tv-drama .btn{min-width:62px;height:46px;border-radius:8px;background:#26262e;display:flex;align-items:center;justify-content:center;font-size:18px;outline:3px solid transparent}' +
@@ -751,6 +758,9 @@
       document.body.innerHTML =
         '<div id="tv-home"><div id="tv-rows"><h1><b>Tik</b><i>Tok</i> TV</h1></div></div>' +
         '<div id="tv-drama"></div>' +
+        '<div id="tv-genre"><h1></h1><div id="tv-gres"></div></div>' +
+        '<div id="tv-search"><h1>Search short dramas</h1><input id="tv-sin" type="text" placeholder="Drama name, e.g. sci-fi, fantasy, CEO…" autocomplete="off">' +
+        '<div id="tv-sres"></div></div>' +
         '<div id="tv-player"><video id="tv-video" playsinline></video><div id="tv-spin">Loading…</div>' +
         '<div id="tv-ov"><div class="a"></div><div class="d"></div><div class="bar"><i></i></div></div></div>' +
         '<div id="tv-toast"></div>';
@@ -771,7 +781,7 @@
           s.onload = function () {
             try {
               window.byted_acrawler.init({ aid: 1988, dfp: false, boe: false, intercept: true,
-                enablePathList: ['/api/recommend/item_list/', '/api/following/item_list/', '/api/explore/item_list/', '/api/drama/'], region: 'sg-tiktok', apiHost: '',
+                enablePathList: ['/api/recommend/item_list/', '/api/following/item_list/', '/api/explore/item_list/', '/api/drama/', '/api/search/'], region: 'sg-tiktok', apiHost: '',
                 mode: ctx.login === false ? 516 : 513, isSDK: false, custom: {} });
               ok();
             } catch (e) { ko(e); }
@@ -802,12 +812,52 @@
       return z['480'] || z['240'] || (c && c[0]) || '';
     }
 
+    /* ---------- genres and recommendations ----------
+       Each drama carries genre tags (themes: [{tagID, tagKey 'tag_Fantasy_GeneralSettings', tagVal 'Fantasy'}]).
+       Recommendations are TikTok's own "more like this" list for a drama (needs its creator's ID); it mixes
+       genres, so the ones sharing the most tags with the drama come first. */
+    function tagsOf(d) { return (d && d.themes || []).filter(function (t) { return t && t.tagVal; }); }
+    function genreOf(d) {
+      var t = tagsOf(d), g = t.filter(function (x) { return /GeneralSettings/i.test(x.tagKey || ''); })[0] || t[0];
+      return g ? g.tagVal : '';
+    }
+    function shared(a, b) {
+      var ids = {}, n = 0; tagsOf(a).forEach(function (t) { ids[t.tagID] = 1; });
+      tagsOf(b).forEach(function (t) { if (ids[t.tagID]) n += /GeneralSettings/i.test(t.tagKey || '') ? 3 : 1; });
+      return n;
+    }
+    var seenDramas = {};   // every drama any list showed, for search
+    function remember(list) { (list || []).forEach(function (d) { if (d && d.dramaID && (!seenDramas[d.dramaID] || d.themes)) seenDramas[d.dramaID] = d; }); return list || []; }
+    var detailP = {}, recP = {};
+    function detail(d) {
+      return detailP[d.dramaID] || (detailP[d.dramaID] = api('/api/drama/detail/', 'dramaID=' + d.dramaID).then(function (j) { return j.dramaInfo || {}; })
+        .catch(function (e) { delete detailP[d.dramaID]; throw e; }));
+    }
+    function authorOf(d) {
+      if (d.authorUID) return Promise.resolve(d.authorUID);
+      return detail(d).then(function (i) {
+        if (!d.themes && i.themes) d.themes = i.themes;
+        d.authorUID = i.authorUID || (i.author && i.author.user && i.author.user.id);
+        if (!d.authorUID) throw new Error('no creator');
+        return d.authorUID;
+      });
+    }
+    function recsFor(d) {
+      return recP[d.dramaID] || (recP[d.dramaID] = authorOf(d).then(function (uid) {
+        return api('/api/drama/recommend/drama_list/', 'dramaID=' + d.dramaID + '&authorUID=' + uid + '&coverFormat=2');
+      }).then(function (j) {
+        var list = remember(j.dramaList).filter(function (x) { return x.dramaID !== d.dramaID; });
+        list.forEach(function (x, i) { x._o = i; });
+        return list.sort(function (a, b) { return shared(d, b) - shared(d, a) || a._o - b._o; });
+      }).catch(function (e) { delete recP[d.dramaID]; throw e; }));
+    }
+
     /* ---------- progress (TV mode keeps its own: TikTok's history isn't told about our playback) ---------- */
     function progAll() { return lsGet('tvProgress', {}) || {}; }
     function progGet(id) { return progAll()[id] || null; }
     function progSet(d, ep, t) {
       var all = progAll();
-      all[d.dramaID] = { ep: ep, t: Math.floor(t || 0), at: Date.now(), name: d.dramaName, cover: coverOf(d), num: d.numVideos, desc: d.description };
+      all[d.dramaID] = { ep: ep, t: Math.floor(t || 0), at: Date.now(), name: d.dramaName, cover: coverOf(d), num: d.numVideos, desc: d.description, au: d.authorUID, th: d.themes };
       var ids = Object.keys(all).sort(function (a, b) { return all[b].at - all[a].at; });
       for (var i = 40; i < ids.length; i++) delete all[ids[i]];
       lsSet('tvProgress', all);
@@ -816,7 +866,7 @@
     /* ---------- home ----------
        A page of rows you scroll down through: Continue watching, the TikTok row (For You, Following, Full TikTok,
        Reload), then Popular short dramas as a grid of 7 per line that keeps loading as you go down. */
-    var rows = [], pos = { r: 0, c: [] }, screen = 'home', GRID = 7, POP0 = 2;   // POP0: first grid row
+    var rows = [], pos = { r: 0, c: [] }, screen = 'home', GRID = 7, REC = 1, TT = 2, GEN = 3, POP0 = 4;   // POP0: first grid row
     var ICON = function (d) { return '<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + d + '</svg>'; };
     function card(it) {
       var c = E('div', 'tv-card' + (it.wide ? ' wide' : ''));
@@ -827,7 +877,7 @@
       }
       c.addEventListener('click', function () { it.go(); });
       // only real pointer movement selects (a resting pointer gets mouseenter when the layout moves under it)
-      c.addEventListener('mousemove', function () { if (!it.el.classList.contains('focus')) focusCard(it.row, it.col, true); });
+      c.addEventListener('mousemove', function () { if (!it.el.classList.contains('focus')) { if (it.hover) it.hover(); else focusCard(it.row, it.col, true); } });
       return c;
     }
     function setRow(i, title, items, msg) {
@@ -880,22 +930,27 @@
     }
     function dramaCard(d, extra) {
       var p = progGet(d.dramaID), ep = p ? p.ep : (d.shortDramaWatchHistory && d.shortDramaWatchHistory.lastWatchedEpisodeNumber);
-      return { img: coverOf(d), title: d.dramaName, sub: ep ? 'Episode ' + ep + ' of ' + d.numVideos : d.numVideos + ' episodes',
+      var g = genreOf(d);
+      return { img: coverOf(d), title: d.dramaName, sub: ep ? 'Episode ' + ep + ' of ' + d.numVideos : (d.numVideos ? d.numVideos + ' episodes' : '') + (g ? (d.numVideos ? ' · ' : '') + g : ''),
         pct: ep ? ep / d.numVideos * 100 : 0, go: function () { (extra && extra.resume) ? resumeDrama(d) : openDrama(d); } };
     }
     function loadHome() {
       setRow(0, 'Continue watching', [], 'Loading…');
-      setRow(1, 'TikTok', [
+      setRow(REC, 'Recommended for you', [], 'Loading…');
+      setRow(TT, 'TikTok', [
+        { wide: true, icon: ICON('<circle cx="11" cy="11" r="7"/><path d="M21 21l-5-5"/>'), title: 'Search dramas', sub: 'By name or genre', go: openSearch },
         { wide: true, icon: ICON('<path d="M7 4l13 8-13 8z" fill="#fff"/>'), title: 'For You', sub: 'Videos picked for you', go: function () { openFeed('fyp'); } },
         { wide: true, icon: ICON('<circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M17 11l2 2 4-4"/>'), title: 'Following', sub: 'From people you follow', go: function () { openFeed('following'); } },
         { wide: true, icon: ICON('<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/>'), title: 'Explore', sub: 'Trending videos', go: function () { openFeed('explore'); } },
         { wide: true, icon: ICON('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>'), title: 'Full TikTok', sub: 'LIVE, search, comments', go: function () { fullSite('/foryou'); } },
         { wide: true, icon: ICON('<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>'), title: 'Reload', sub: 'Refresh these lists', go: function () { location.reload(); } }
       ]);
+      setRow(GEN, 'Genres', [], 'Loading…');
       setRow(POP0, 'Popular short dramas', [], 'Loading…');
       focusCard(0, 0);
+      loadGenres();
       api('/api/drama/watch_history/', 'count=20&coverFormat=2&cursor=0').then(function (j) {
-        tikHistory = j.dramaList || [];
+        tikHistory = remember(j.dramaList);
       }).catch(function () {}).then(renderContinue);
       loadPopular(true);
     }
@@ -903,16 +958,31 @@
     var tikHistory = [];
     function renderContinue() {
       var local = progAll(), ids = Object.keys(local).sort(function (a, b) { return local[b].at - local[a].at; });
-      var cont = ids.map(function (id) { var p = local[id]; return { dramaID: id, dramaName: p.name, numVideos: p.num, description: p.desc, zoomCover: { 480: p.cover } }; });
+      var cont = ids.map(function (id) { var p = local[id]; return { dramaID: id, dramaName: p.name, numVideos: p.num, description: p.desc, zoomCover: { 480: p.cover }, authorUID: p.au, themes: p.th }; });
       tikHistory.forEach(function (d) { if (!local[d.dramaID]) cont.push(d); });
       if (pos.r === 0) pos.c[0] = 0;          // the drama just watched is now first
       setRow(0, 'Continue watching', cont.map(function (d) { return dramaCard(d, { resume: true }); }), 'Dramas you watch will show up here');
+      renderHomeRecs(cont);
+    }
+    // "Because you watched …": TikTok's recommendations for the drama watched last, same genre first,
+    // leaving out dramas already in Continue watching.
+    var homeRecSeed = null;
+    function renderHomeRecs(cont) {
+      var seed = cont[0];
+      if (!seed) return setRow(REC, 'Recommended for you', [], 'Watch a drama and similar ones will show up here');
+      if (homeRecSeed === seed.dramaID) return; homeRecSeed = seed.dramaID;
+      recsFor(seed).then(function (list) {
+        if (homeRecSeed !== seed.dramaID) return;
+        var have = {}; cont.forEach(function (d) { have[d.dramaID] = 1; });
+        setRow(REC, 'Because you watched ' + seed.dramaName, list.filter(function (d) { return !have[d.dramaID]; }).slice(0, 20).map(function (d) { return dramaCard(d); }),
+          'No recommendations right now');
+      }).catch(function () { homeRecSeed = null; setRow(REC, 'Recommended for you', [], 'Couldn’t load recommendations'); });
     }
     var popular = { list: [], cursor: '0', more: true, busy: false };
     function loadPopular(first) {
       if (popular.busy || !popular.more) return; popular.busy = true;
       api('/api/drama/theme/drama_list/', 'count=21&coverFormat=2&oneColumnMode=true&themeType=7&from_page=&cursor=' + encodeURIComponent(popular.cursor)).then(function (j) {
-        popular.list = popular.list.concat(j.dramaList || []); popular.cursor = j.cursor; popular.more = !!j.hasMore && (j.dramaList || []).length > 0;
+        popular.list = popular.list.concat(remember(j.dramaList)); popular.cursor = j.cursor; popular.more = !!j.hasMore && (j.dramaList || []).length > 0;
         renderPopular();
       }).catch(function (e) {
         if (first) setRow(POP0, 'Popular short dramas', [], 'Could not load dramas (' + e.message + '). Choose Reload above to try again.');
@@ -937,6 +1007,8 @@
       var k = e.deltaY > 0 ? K.DOWN : K.UP;
       if (screen === 'home') homeMove(k);
       else if (screen === 'drama') dramaKey(k);
+      else if (screen === 'search') { if (srch.line >= 0) searchKey(k); }
+      else if (screen === 'genre') genreKey(k);
       else if (cur) step(k === K.DOWN ? 1 : -1);
     }
 
@@ -947,6 +1019,9 @@
       document.getElementById('tv-home').style.display = name === 'home' ? '' : 'none';
       document.getElementById('tv-drama').style.display = name === 'drama' ? 'block' : 'none';
       document.getElementById('tv-player').style.display = name === 'player' ? 'block' : 'none';
+      document.getElementById('tv-search').style.display = name === 'search' ? 'block' : 'none';
+      document.getElementById('tv-genre').style.display = name === 'genre' ? 'block' : 'none';
+      if (name !== 'search') { var si = document.getElementById('tv-sin'); if (si) si.blur(); }
       if (name !== 'player') stopVideo();
       if (name === 'home') { renderContinue(); focusCard(pos.r, pos.c[pos.r] || 0); }
     }
@@ -959,16 +1034,64 @@
       });
     }
     function newDrama(d) { return { d: d, eps: [], total: d.numVideos || 0, cursor: '0', more: true }; }
-    function openDrama(d) {
+    function openDrama(d, opts) {
+      var prev = drama;
       drama = newDrama(d); show('drama');
-      var p = progGet(d.dramaID), ep = p ? p.ep : 0, el = document.getElementById('tv-drama');
-      el.innerHTML = '<div class="top"><img src="' + esc(coverOf(d)) + '"><div><h2>' + esc(d.dramaName) + '</h2><p>' + esc(d.description || '') + '</p>' +
-        '<div class="btn" data-i="play">' + (ep ? '▶ Continue episode ' + ep : '▶ Play episode 1') + '</div></div></div><div class="eps"></div>';
-      drama.focus = 0;
-      if (!d.description) api('/api/drama/detail/', 'dramaID=' + d.dramaID).then(function (j) {
-        var i = j.dramaInfo || {}; if (drama && drama.d === d) { d.description = i.description; el.querySelector('p').textContent = i.description || ''; }
+      drama.fromSearch = !!(prev && prev.d === d && prev.fromSearch); drama.fromGenre = !!(prev && prev.d === d && prev.fromGenre);   // back from the player keeps where Back leads
+      var dr = drama, p = progGet(d.dramaID), ep = p ? p.ep : 0, el = document.getElementById('tv-drama');
+      el.innerHTML = '<div id="tv-dwrap"><div class="top"><img src="' + esc(coverOf(d)) + '"><div><h2>' + esc(d.dramaName) + '</h2>' +
+        '<div class="tags"></div><p>' + esc(d.description || '') + '</p>' +
+        '<div class="btn" data-i="play">' + (ep ? '▶ Continue episode ' + ep : '▶ Play episode 1') + '</div></div></div><div class="eps"></div>' +
+        '<div class="tv-row recs"><h2>More like this</h2><div class="tv-track"><div class="tv-msg">Loading…</div></div></div></div>';
+      dr.focus = 0; dr.zone = 'eps'; dr.rc = 0; dr.recs = []; dr.wantRecs = !!(opts && opts.recs);
+      renderTags(d);
+      if (!d.description || !d.themes || !d.numVideos) detail(d).then(function (i) {
+        if (drama !== dr) return;
+        if (!d.description) { d.description = i.description; el.querySelector('p').textContent = i.description || ''; }
+        if (!d.themes && i.themes) { d.themes = i.themes; renderTags(d); }
+        if (!dr.total && i.numVideos) { d.numVideos = dr.total = i.numVideos; renderEps(); dramaFocus(dr.focus); }
       }).catch(function () {});
+      if (!dr.total) loadEpisodes(dr, 1).then(function () { if (drama === dr && dr.total) { renderEps(); dramaFocus(dr.focus); } }).catch(function () {});
       renderEps(); dramaFocus(0);
+      recsFor(d).then(function (list) { if (drama === dr) renderRecs(dr, list.slice(0, 24)); })
+        .catch(function () { if (drama === dr) renderRecs(dr, []); });
+    }
+    function renderTags(d) {
+      var box = document.querySelector('#tv-drama .tags'); if (!box) return;
+      var tags = tagsOf(d);
+      box.innerHTML = tags.map(function (t) { return '<span>' + esc(t.tagVal) + '</span>'; }).join('');
+      [].forEach.call(box.children, function (el, i) {
+        el.onclick = function () { openGenre({ id: tags[i].tagID, name: tags[i].tagVal }); };
+        el.onmousemove = function () { if (drama.zone !== 'tags' || drama.tc !== i) tagFocus(i); };
+      });
+    }
+    function renderRecs(dr, list) {
+      var track = document.querySelector('#tv-drama .recs .tv-track'); if (!track) return;
+      track.innerHTML = '';
+      dr.recs = list.map(function (rd, i) {
+        var it = dramaCard(rd); it.hover = function () { recFocus(i); };
+        it.el = card(it); track.appendChild(it.el); return it;
+      });
+      if (!list.length) track.appendChild(E('div', 'tv-msg', 'No recommendations right now'));
+      if (dr.wantRecs && list.length) { dr.wantRecs = false; recFocus(0); }
+    }
+    function tagFocus(i) {
+      var els = document.querySelectorAll('#tv-drama .tags span'); if (!els.length) return false;
+      i = Math.max(0, Math.min(els.length - 1, i));
+      var old = document.querySelector('#tv-drama .focus'); if (old) old.classList.remove('focus');
+      drama.zone = 'tags'; drama.tc = i; els[i].classList.add('focus');
+      document.getElementById('tv-dwrap').style.transform = '';
+      return true;
+    }
+    function recFocus(c) {
+      var dr = drama, items = dr.recs; if (!items.length) return;
+      c = Math.max(0, Math.min(items.length - 1, c));
+      var old = document.querySelector('#tv-drama .focus'); if (old) old.classList.remove('focus');
+      dr.zone = 'recs'; dr.rc = c; items[c].el.classList.add('focus');
+      var x = items[c].el.offsetLeft, w = 1280 - 96 - 40, track = items[c].el.parentNode;
+      track.style.transform = 'translateX(' + (x > w - 240 ? -(x - (w - 240)) : 0) + 'px)';
+      var row = document.querySelector('#tv-drama .recs');
+      document.getElementById('tv-dwrap').style.transform = 'translateY(' + (-Math.max(0, row.offsetTop + row.offsetHeight - 660)) + 'px)';
     }
     function renderEps() {
       var p = progGet(drama.d.dramaID), box = document.querySelector('#tv-drama .eps'); if (!box) return;
@@ -976,8 +1099,8 @@
       for (var n = 1; n <= drama.total; n++) html += '<div class="ep' + (p && n < p.ep ? ' seen' : '') + (p && n === p.ep ? ' cur' : '') + '" data-i="' + n + '">' + n + '</div>';
       box.innerHTML = html;
       [].forEach.call(document.querySelectorAll('#tv-drama [data-i]'), function (b, i) {
-        b.addEventListener('click', function () { dramaFocus(i); dramaKey(K.OK); });
-        b.addEventListener('mousemove', function () { if (drama.focus !== i) dramaFocus(i); });
+        b.onclick = function () { dramaFocus(i); dramaKey(K.OK); };
+        b.onmousemove = function () { if (drama.zone !== 'eps' || drama.focus !== i) dramaFocus(i); };
       });
     }
     function dramaButtons() { return document.querySelectorAll('#tv-drama [data-i]'); }
@@ -985,17 +1108,36 @@
       var bs = dramaButtons(); if (!bs.length) return;
       i = Math.max(0, Math.min(bs.length - 1, i));
       var old = document.querySelector('#tv-drama .focus'); if (old) old.classList.remove('focus');
-      drama.focus = i; bs[i].classList.add('focus');
+      drama.zone = 'eps'; drama.focus = i; bs[i].classList.add('focus');
+      var wrap = document.getElementById('tv-dwrap'); if (wrap) wrap.style.transform = '';
       var box = document.querySelector('#tv-drama .eps'), b = bs[i];
       if (i > 0) box.scrollTop = Math.max(0, b.offsetTop - box.offsetTop - 112);
     }
     function dramaKey(k) {
-      var i = drama.focus, per = 16;   // episode buttons per row
-      if (k === K.BACK || k === K.ESC) { show('home'); return true; }
+      var i = drama.focus, per = 16, n = dramaButtons().length;   // episode buttons per row
+      if (k === K.BACK || k === K.ESC) { if (drama.fromGenre) showGenre(); else if (drama.fromSearch) showSearch(false); else show('home'); return true; }
+      if (drama.zone === 'tags') {   // genre chips: OK lists that genre
+        if (k === K.LEFT) tagFocus(drama.tc - 1);
+        else if (k === K.RIGHT) tagFocus(drama.tc + 1);
+        else if (k === K.DOWN) dramaFocus(0);
+        else if (k === K.OK) { var t = tagsOf(drama.d)[drama.tc]; if (t) openGenre({ id: t.tagID, name: t.tagVal }); }
+        else if (k !== K.UP) return false;
+        return true;
+      }
+      if (drama.zone === 'recs') {
+        if (k === K.LEFT) recFocus(drama.rc - 1);
+        else if (k === K.RIGHT) recFocus(drama.rc + 1);
+        else if (k === K.UP) dramaFocus(i);
+        else if (k === K.OK) { var it = drama.recs[drama.rc]; if (it) it.go(); }
+        else if (k !== K.DOWN) return false;
+        return true;
+      }
+      // Down from the last line of episodes (or from Play when there are none) goes to More like this
+      var lastLine = n > 1 ? Math.floor((n - 2) / per) : -1, line = i === 0 ? -1 : Math.floor((i - 1) / per);
       if (k === K.LEFT) dramaFocus(i - 1);
       else if (k === K.RIGHT) dramaFocus(i + 1);
-      else if (k === K.DOWN) dramaFocus(i === 0 ? 1 : i + per);
-      else if (k === K.UP) dramaFocus(i <= per ? 0 : i - per);
+      else if (k === K.DOWN) { if (line >= lastLine) recFocus(drama.rc); else dramaFocus(i === 0 ? 1 : i + per); }
+      else if (k === K.UP) { if (i === 0) tagFocus(drama.tc || 0); else dramaFocus(i <= per ? 0 : i - per); }
       else if (k === K.OK || k === K.PLAY || k === K.PLAYPAUSE) {
         var b = dramaButtons()[i], p = progGet(drama.d.dramaID);
         if (!b) return true;
@@ -1007,6 +1149,199 @@
     function resumeDrama(d) {
       var p = progGet(d.dramaID), ep = p ? p.ep : (d.shortDramaWatchHistory && d.shortDramaWatchHistory.lastWatchedEpisodeNumber) || 1;
       drama = newDrama(d); playEpisode(drama, ep, p ? p.t : 0);
+    }
+
+    /* ---------- search ----------
+       TikTok has no drama-only search, so this asks its general search for the words and keeps the results that
+       are drama episodes (they carry dramaInfo: dramaID, dramaName, authorUID), one card per drama. Dramas the
+       app has already listed (Popular, history, recommendations) whose name or genre matches come first. */
+    var srch = { q: '', items: [], line: -1, col: 0, busy: 0 }, SGRID = 7;
+    function openSearch() { show('search'); showSearch(true); }
+    function showSearch(toInput) {
+      show('search');
+      if (toInput || !srch.items.length) searchInput(); else searchFocus(srch.line, srch.col);
+    }
+    function searchInput() {
+      srch.line = -1; var old = document.querySelector('#tv-search .focus'); if (old) old.classList.remove('focus');
+      var si = document.getElementById('tv-sin'); si.classList.add('focus'); si.focus();
+      document.getElementById('tv-sres').style.transform = '';
+    }
+    function localMatches(q) {
+      var words = q.toLowerCase().split(/\s+/).filter(Boolean), out = [];
+      Object.keys(seenDramas).forEach(function (id) {
+        var d = seenDramas[id], hay = ((d.dramaName || '') + ' ' + tagsOf(d).map(function (t) { return t.tagVal; }).join(' ')).toLowerCase();
+        if (words.every(function (w) { return hay.indexOf(w) >= 0; })) out.push(d);
+      });
+      return out;
+    }
+    function fromVideos(list) {
+      var out = [];
+      (list || []).forEach(function (it) {
+        it = it && (it.item || it);
+        var di = it && it.dramaInfo; if (!di || !di.dramaID) return;
+        out.push({ dramaID: di.dramaID, dramaName: di.dramaName || (it.desc || '').slice(0, 60), authorUID: di.authorUID || (it.author && it.author.id),
+          numVideos: di.numVideos || di.totalEpisodeCount || 0, themes: di.themes, description: di.description,
+          cover: di.cover && di.cover.urlList ? di.cover : { urlList: [(it.video && (it.video.cover || it.video.originCover)) || ''] }, zoomCover: di.zoomCover });
+      });
+      return out;
+    }
+    function runSearch() {
+      var q = document.getElementById('tv-sin').value.trim(); if (!q) return;
+      var token = ++srch.busy; srch.q = q;
+      var found = {}, list = [];
+      function add(ds) { ds.forEach(function (d) { if (!found[d.dramaID]) { found[d.dramaID] = 1; list.push(seenDramas[d.dramaID] || d); } }); }
+      add(localMatches(q)); renderSearch(list, 'Searching TikTok…');
+      // TikTok's search, a few pages one after the other with a pause (rapid requests made TikTok ask for a
+      // captcha before); about 1 in 10 results is a drama episode.
+      var plan = [[q + ' drama', 0], [q + ' drama', 1], [q + ' short drama', 0], [q, 0]], cursors = {};
+      (function next(n) {
+        if (token !== srch.busy) return;
+        if (n >= plan.length) return renderSearch(list, 'No dramas found for “' + q + '”. Try the drama’s name or a genre like fantasy or revenge.', true);
+        var kw = plan[n][0], off = plan[n][1] ? cursors[kw] : 0;
+        if (off == null) return next(n + 1);
+        api('/api/search/general/full/', 'keyword=' + encodeURIComponent(kw) + '&offset=' + off + '&search_source=normal_search').then(function (j) {
+          cursors[kw] = j.has_more ? j.cursor : null;
+          return fromVideos((j.data || []).map(function (x) { return x.item; }));
+        }).catch(function () { return []; }).then(function (ds) {
+          if (token !== srch.busy) return;
+          add(remember(ds)); renderSearch(list, 'Searching TikTok…');
+          setTimeout(function () { next(n + 1); }, 600);
+        });
+      })(0);
+    }
+    function renderSearch(list, msg, done) {
+      var box = document.getElementById('tv-sres'), keep = srch.line >= 0;
+      box.innerHTML = '';
+      srch.items = list.map(function (d, i) {
+        var it = dramaCard(d), go = it.go;
+        it.go = function () { go(); if (drama) drama.fromSearch = true; };
+        it.hover = function () { searchFocus(Math.floor(i / SGRID), i % SGRID); };
+        return it;
+      });
+      for (var g = 0; g * SGRID < srch.items.length; g++) {
+        var row = E('div', 'tv-row'), track = E('div', 'tv-track'); row.appendChild(track); box.appendChild(row);
+        srch.items.slice(g * SGRID, (g + 1) * SGRID).forEach(function (it) { it.el = card(it); track.appendChild(it.el); });
+      }
+      if (!list.length || !done) box.appendChild(E('div', 'tv-msg', esc(list.length && !done ? 'Searching TikTok for more…' : msg)));
+      if (keep) searchFocus(srch.line, srch.col);
+    }
+    function searchFocus(line, col) {
+      var n = srch.items.length; if (!n) return searchInput();
+      var lines = Math.ceil(n / SGRID); line = Math.max(0, Math.min(lines - 1, line));
+      col = Math.max(0, Math.min(Math.min(SGRID, n - line * SGRID) - 1, col));
+      var si = document.getElementById('tv-sin'); si.classList.remove('focus'); si.blur();
+      var old = document.querySelector('#tv-search .tv-card.focus'); if (old) old.classList.remove('focus');
+      srch.line = line; srch.col = col;
+      var el = srch.items[line * SGRID + col].el; el.classList.add('focus');
+      var rowEl = el.parentNode.parentNode;
+      var gbox = document.getElementById('tv-sres');   // (rows are positioned inside the moved box)
+      gbox.style.transform = 'translateY(' + (-Math.max(0, gbox.offsetTop + rowEl.offsetTop + rowEl.offsetHeight - 700)) + 'px)';
+    }
+    function searchKey(k) {
+      if (srch.line < 0) {   // typing in the box (the TV's on-screen keyboard handles letters)
+        if (k === K.OK) { runSearch(); return true; }
+        if (k === K.DOWN) { if (srch.items.length) searchFocus(0, 0); return true; }
+        if (k === K.BACK || k === K.ESC) { show('home'); return true; }
+        return false;
+      }
+      if (k === K.LEFT) searchFocus(srch.line, srch.col - 1);
+      else if (k === K.RIGHT) searchFocus(srch.line, srch.col + 1);
+      else if (k === K.DOWN) searchFocus(srch.line + 1, srch.col);
+      else if (k === K.UP) { if (srch.line === 0) searchInput(); else searchFocus(srch.line - 1, srch.col); }
+      else if (k === K.OK) { var it = srch.items[srch.line * SGRID + srch.col]; if (it) it.go(); }
+      else if (k === K.BACK || k === K.ESC) searchInput();
+      else return false;
+      return true;
+    }
+
+    /* ---------- genres ----------
+       TikTok's drama library filters: /api/drama/filter/category_list/ gives the genres (their IDs are the same
+       tag IDs dramas carry in themes), and the library list is drama_list with themeType=10&tagIDList=<id>. */
+    var genres = null;
+    function loadGenres() {
+      var c = lsGet('tvGenres', null);
+      if (c && c.at > Date.now() - 864e5 && c.list && c.list.length) { genres = c.list; return renderGenres(); }
+      api('/api/drama/filter/category_list/', 'x=1').then(function (j) {
+        var list = [], seen = {};
+        (j.dramaCategoryLists || []).forEach(function (l) {
+          (l.dramaCategories || []).forEach(function (g) {
+            if (g.categoryFilterType === 2 && g.categoryID && g.categoryID !== '0' && !seen[g.categoryID] && !seen[g.name]) { seen[g.categoryID] = seen[g.name] = 1; list.push({ id: g.categoryID, name: g.name }); }
+          });
+        });
+        genres = list; if (list.length) lsSet('tvGenres', { at: Date.now(), list: list });
+        renderGenres();
+      }).catch(function () { setRow(GEN, 'Genres', [], 'Couldn’t load genres. Choose Reload above to try again.'); });
+    }
+    var GICON = ICON('<path d="M4 6h16M4 12h16M4 18h10"/>');
+    function renderGenres() {
+      setRow(GEN, 'Genres', (genres || []).map(function (g) {
+        return { wide: true, icon: GICON, title: g.name, sub: 'Short dramas', go: function () { openGenre(g); } };
+      }), 'No genres right now');
+    }
+    var gen = { g: null, items: [], list: [], line: 0, col: 0, cursor: '0', more: true, busy: false, from: null, fromDrama: null };
+    function openGenre(g) {
+      if (!gen.g || gen.g.id !== g.id) {
+        gen.g = g; gen.list = []; gen.items = []; gen.line = 0; gen.col = 0; gen.cursor = '0'; gen.more = true; gen.busy = false; gen.token = (gen.token || 0) + 1;
+        document.querySelector('#tv-genre h1').textContent = g.name;
+        document.getElementById('tv-gres').innerHTML = '<div class="tv-msg">Loading…</div>';
+        moreGenre();
+      }
+      gen.from = screen === 'drama' ? 'drama' : 'home'; gen.fromDrama = drama;
+      showGenre();
+    }
+    function showGenre() { show('genre'); if (gen.items.length) genreFocus(gen.line, gen.col); }
+    function moreGenre() {
+      if (gen.busy || !gen.more) return; gen.busy = true;
+      var t = gen.token, g = gen.g;
+      api('/api/drama/theme/drama_list/', 'themeType=10&count=21&coverFormat=2&oneColumnMode=true&tagIDList=' + encodeURIComponent(g.id) + '&cursor=' + encodeURIComponent(gen.cursor)).then(function (j) {
+        if (t !== gen.token) return;
+        var have = {}; gen.list.forEach(function (d) { have[d.dramaID] = 1; });
+        var add = remember(j.dramaList).filter(function (d) { return !have[d.dramaID]; });
+        gen.list = gen.list.concat(add); gen.cursor = j.cursor; gen.more = !!j.hasMore && add.length > 0;
+        renderGenre();
+      }).catch(function (e) {
+        if (t === gen.token && !gen.list.length) document.getElementById('tv-gres').innerHTML = '<div class="tv-msg">Couldn’t load ' + esc(g.name) + ' dramas (' + esc(e.message) + ')</div>';
+      }).then(function () { if (t === gen.token) gen.busy = false; });
+    }
+    function renderGenre() {
+      var box = document.getElementById('tv-gres');
+      if (!gen.list.length) { box.innerHTML = '<div class="tv-msg">No dramas in this genre right now</div>'; return; }
+      if (!gen.items.length) box.innerHTML = '';
+      for (var i = gen.items.length; i < gen.list.length; i++) (function (i) {
+        var it = dramaCard(gen.list[i]), go = it.go;
+        it.go = function () { go(); if (drama) drama.fromGenre = true; };
+        it.hover = function () { genreFocus(Math.floor(i / SGRID), i % SGRID); };
+        it.el = card(it);
+        var line = Math.floor(i / SGRID), rowEl = box.children[line];
+        if (!rowEl) { rowEl = E('div', 'tv-row'); rowEl.appendChild(E('div', 'tv-track')); box.appendChild(rowEl); }
+        rowEl.firstChild.appendChild(it.el);
+        gen.items.push(it);
+      })(i);
+      if (screen === 'genre') genreFocus(gen.line, gen.col);
+    }
+    function genreFocus(line, col) {
+      var n = gen.items.length; if (!n) return;
+      var lines = Math.ceil(n / SGRID); line = Math.max(0, Math.min(lines - 1, line));
+      col = Math.max(0, Math.min(Math.min(SGRID, n - line * SGRID) - 1, col));
+      var old = document.querySelector('#tv-genre .tv-card.focus'); if (old) old.classList.remove('focus');
+      gen.line = line; gen.col = col;
+      var el = gen.items[line * SGRID + col].el; el.classList.add('focus');
+      var rowEl = el.parentNode.parentNode;
+      var gbox = document.getElementById('tv-gres');   // (rows are positioned inside the moved box)
+      gbox.style.transform = 'translateY(' + (-Math.max(0, gbox.offsetTop + rowEl.offsetTop + rowEl.offsetHeight - 700)) + 'px)';
+      if (line >= lines - 2) moreGenre();
+    }
+    function genreKey(k) {
+      if (k === K.LEFT) genreFocus(gen.line, gen.col - 1);
+      else if (k === K.RIGHT) genreFocus(gen.line, gen.col + 1);
+      else if (k === K.DOWN) genreFocus(gen.line + 1, gen.col);
+      else if (k === K.UP) genreFocus(gen.line - 1, gen.col);
+      else if (k === K.OK) { var it = gen.items[gen.line * SGRID + gen.col]; if (it) it.go(); }
+      else if (k === K.BACK || k === K.ESC) {
+        if (gen.from === 'drama' && gen.fromDrama && gen.fromDrama === drama) { show('drama'); tagFocus(drama.tc || 0); }
+        else show('home');
+      } else return false;
+      return true;
     }
 
     /* ---------- player ---------- */
@@ -1083,7 +1418,7 @@
       if (cur.kind === 'feed') return feedGo(feed.i + dir);
       var ep = cur.ep + dir;
       if (ep < 1) return toast('This is the first episode');
-      if (cur.dr.total && ep > cur.dr.total) { toast('That was the last episode', 2500); return show(drama ? 'drama' : 'home'); }
+      if (cur.dr.total && ep > cur.dr.total) { toast('That was the last episode. More like this below', 3000); return openDrama(cur.dr.d, { recs: true }); }
       playEpisode(cur.dr, ep, 0);
     }
     function playerKey(k) {
@@ -1128,15 +1463,18 @@
         if (k === K.RED) { location.reload(); used = true; }
         else if (screen === 'home') used = homeKey(k);
         else if (screen === 'drama') used = dramaKey(k);
+        else if (screen === 'search') used = searchKey(k);
+        else if (screen === 'genre') used = genreKey(k);
         else used = playerKey(k);
         if (used) { e.preventDefault(); e.stopPropagation(); }
       }, true);
       addEventListener('mousemove', function () { if (screen === 'player') showOv(); });
       addEventListener('wheel', onWheel, { passive: false });
       video.addEventListener('click', function () { playerKey(K.OK); });
+      document.getElementById('tv-sin').addEventListener('click', searchInput);
       loadHome();
       loadSdk().catch(function () {
-        setRow(1, 'Popular short dramas', [], 'TikTok didn’t load. Check the internet connection, then choose Reload below.');
+        setRow(POP0, 'Popular short dramas', [], 'TikTok didn’t load. Check the internet connection, then choose Reload above.');
       });
     }
     start();

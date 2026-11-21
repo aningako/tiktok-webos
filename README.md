@@ -62,9 +62,11 @@ that may not work inside a TV app.
 
 ### TV mode (home screen)
 
-The app starts in TV mode, its own light player: Continue watching, Popular short dramas, For You, Following and Explore, with about
-1.5-2.5s per episode or video instead of 7-13s on TikTok's website. Choose **Full TikTok** for everything else
-(LIVE, search, comments, logging in). The Magic Remote wheel scrolls the home screen.
+The app starts in TV mode, its own light player: Continue watching, Because you watched…, Search dramas, Genres,
+Popular short dramas, For You, Following and Explore, with about 1.5-2.5s per episode or video instead of 7-13s on
+TikTok's website. A drama page shows its genre tags (Up from Play; OK lists that genre) and **More like this**
+(Down from the episodes). Choose **Full TikTok** for everything else (LIVE, comments, logging in). The Magic Remote
+wheel scrolls the home screen.
 
 | Button | Home | Player |
 | --- | --- | --- |
