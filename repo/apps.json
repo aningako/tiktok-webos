@@ -13,18 +13,18 @@
       "manifestUrl": "https://raw.githubusercontent.com/aningako/tiktok-webos/main/repo/manifest.json",
       "manifest": {
         "id": "com.homebrew.tiktok",
-        "version": "2.6.2",
+        "version": "2.6.3",
         "type": "web",
         "title": "TikTok (unofficial)",
         "appDescription": "Unofficial TikTok for LG webOS TVs: the TikTok desktop site full-screen with remote-control support (For You, Short dramas, LIVE). Made for Pie Amolong, to watch AI dramas on an LG TV. Created by aning and Cipher Amir with the help of Claude.",
         "iconUri": "https://raw.githubusercontent.com/aningako/tiktok-webos/main/app/com.homebrew.tiktok/largeIcon.png",
         "sourceUrl": "https://github.com/aningako/tiktok-webos",
         "rootRequired": false,
-        "ipkUrl": "https://github.com/aningako/tiktok-webos/releases/download/v2.6.2/com.homebrew.tiktok_2.6.2_all.ipk",
+        "ipkUrl": "https://github.com/aningako/tiktok-webos/releases/download/v2.6.3/com.homebrew.tiktok_2.6.3_all.ipk",
         "ipkHash": {
-          "sha256": "a24c88dce1021a8bac4d52dc0d07b7cbf4b7715a89a1388fb219b9ec46a1e716"
+          "sha256": "57279f853bf57250e92f6b87246be766ebf7ca678108129a8ded2493645b8526"
         },
-        "ipkSize": 32390
+        "ipkSize": 33190
       },
       "requirements": {
         "webosRelease": ">=4.0"

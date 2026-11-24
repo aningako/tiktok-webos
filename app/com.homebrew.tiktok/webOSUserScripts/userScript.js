@@ -872,11 +872,31 @@
         return d.authorUID;
       });
     }
+    function mainTagId(d) {
+      var t = tagsOf(d), g = t.filter(function (x) { return /GeneralSettings/i.test(x.tagKey || ''); })[0] || t[0];
+      return g ? g.tagID : null;
+    }
+    // Fallback when TikTok's per-creator "more like this" is empty or unavailable: other dramas in this
+    // drama's main genre. Needs its themes, so fetch the detail first if the list didn't carry them.
+    function genreRecsFor(d) {
+      return (d.themes ? Promise.resolve() : detail(d).then(function (i) { if (i.themes && !d.themes) d.themes = i.themes; }).catch(function () {}))
+        .then(function () {
+          var id = mainTagId(d);
+          if (!id) return [];
+          return api('/api/drama/theme/drama_list/', 'themeType=10&count=21&coverFormat=2&oneColumnMode=true&tagIDList=' + encodeURIComponent(id) + '&cursor=0')
+            .then(function (j) { return remember(j.dramaList).filter(function (x) { return x.dramaID !== d.dramaID; }); });
+        }).catch(function () { return []; });
+    }
     function recsFor(d) {
       return recP[d.dramaID] || (recP[d.dramaID] = authorOf(d).then(function (uid) {
-        return api('/api/drama/recommend/drama_list/', 'dramaID=' + d.dramaID + '&authorUID=' + uid + '&coverFormat=2');
-      }).then(function (j) {
-        var list = remember(j.dramaList).filter(function (x) { return x.dramaID !== d.dramaID; });
+        return api('/api/drama/recommend/drama_list/', 'dramaID=' + d.dramaID + '&authorUID=' + uid + '&coverFormat=2')
+          .then(function (j) { return remember(j.dramaList).filter(function (x) { return x.dramaID !== d.dramaID; }); });
+      }).catch(function () { return []; })        // no creator / call failed -> fall through to genre
+      .then(function (list) {
+        if (list && list.length) return list;
+        return genreRecsFor(d);                   // same-genre dramas so there's always something related
+      }).then(function (list) {
+        if (!list.length) { delete recP[d.dramaID]; return list; }   // nothing yet: allow a retry next open
         list.forEach(function (x, i) { x._o = i; });
         return list.sort(function (a, b) { return shared(d, b) - shared(d, a) || a._o - b._o; });
       }).catch(function (e) { delete recP[d.dramaID]; throw e; }));
@@ -1008,9 +1028,10 @@
           'No recommendations right now');
       }).catch(function () { homeRecSeed = null; recFailed[seed.dramaID] = 1; setRow(REC, 'Recommended for you', [], 'Couldn’t load recommendations'); });
     }
-    var popular = { list: [], cursor: '0', more: true, busy: false, retryAt: 0 };
+    var popular = { list: [], cursor: '0', more: true, busy: false, retryAt: 0, at: 0 };
     function loadPopular(first) {
       if (popular.busy || !popular.more || Date.now() < popular.retryAt) return; popular.busy = true;
+      if (first) popular.at = Date.now();
       api('/api/drama/theme/drama_list/', 'count=21&coverFormat=2&oneColumnMode=true&themeType=7&from_page=&cursor=' + encodeURIComponent(popular.cursor)).then(function (j) {
         var have = {}; popular.list.forEach(function (d) { have[d.dramaID] = 1; });
         var add = remember(j.dramaList).filter(function (d) { return !have[d.dramaID]; });
@@ -1021,6 +1042,14 @@
         popular.retryAt = Date.now() + 30000;   // (no request on every keypress after a failure: captcha risk)
         if (first) setRow(POP0, 'Popular short dramas', [], 'Could not load dramas (' + e.message + '). Choose Reload above to try again.');
       }).then(function () { popular.busy = false; });
+    }
+    // Reload the drama grid from the newest, dropping the cached list and any extra grid rows it grew.
+    function refreshPopular() {
+      for (var r = rows.length - 1; r >= POP0; r--) { if (rows[r] && rows[r].el) rows[r].el.remove(); }
+      rows.length = POP0;
+      popular.list = []; popular.cursor = '0'; popular.more = true; popular.busy = false; popular.retryAt = 0;
+      setRow(POP0, 'Popular short dramas', [], 'Loading…');
+      loadPopular(true);
     }
     function renderPopular() {
       var all = popular.list.map(function (d) { return dramaCard(d); });
@@ -1033,11 +1062,12 @@
       var last = POP0 + g - 1;
       for (var r2 = Math.max(POP0, last - 1); r2 <= last; r2++) rows[r2].items.forEach(function (it) { it.onFocus = function () { loadPopular(); }; });
     }
-    // Magic Remote wheel: one row (or video / episode) per notch, at most every 250ms
-    var wheelAt = 0;
+    // Magic Remote wheel: one row (or video / episode) per notch, at most every WHEEL_MS. The wheel spins
+    // off many notches at once, so keep this gap generous or browsing flies past - the D-pad is 1:1 anyway.
+    var WHEEL_MS = 450, wheelAt = 0;
     function onWheel(e) {
       e.preventDefault();
-      if (Date.now() - wheelAt < 250 || !e.deltaY) return; wheelAt = Date.now();
+      if (Date.now() - wheelAt < WHEEL_MS || !e.deltaY) return; wheelAt = Date.now();
       var k = e.deltaY > 0 ? K.DOWN : K.UP;
       if (screen === 'home') homeMove(k);
       else if (screen === 'drama') dramaKey(k);
@@ -1057,7 +1087,13 @@
       document.getElementById('tv-genre').style.display = name === 'genre' ? 'block' : 'none';
       if (name !== 'search') { var si = document.getElementById('tv-sin'); if (si) si.blur(); }
       if (name !== 'player') stopVideo();
-      if (name === 'home') { renderContinue(); focusCard(pos.r, pos.c[pos.r] || 0); }
+      if (name === 'home') {
+        renderContinue();
+        // Coming back to home: refresh the drama grid to the newest, but only when you're not mid-scroll
+        // in it (focus is in the top rows) and not too often (captcha risk from frequent API calls).
+        if (pos.r < POP0 && Date.now() - (popular.at || 0) > 120000) refreshPopular();
+        focusCard(pos.r, pos.c[pos.r] || 0);
+      }
     }
     function loadEpisodes(dr, upTo) {
       if (dr.loading) return dr.loading.then(function () { return loadEpisodes(dr, upTo); });
@@ -1495,7 +1531,18 @@
         showOv('@' + (au.uniqueId || au.nickname || ''), it.desc || '');
       }
     }
-    function openFeed(kind) { feed = feeds[kind] || feeds.fyp; feedGo(Math.max(0, feed.i)); }
+    // Start a feed over from the newest videos (drop the cached list and cursor).
+    function freshFeed(f) {
+      f.items = []; f.i = -1; f.more = true; f.retryAt = 0; f.busy = null;
+      if (f.cursor != null) f.cursor = '0';
+      if (f.level) f.level = 1;
+    }
+    function openFeed(kind) {
+      feed = feeds[kind] || feeds.fyp;
+      // For You and Explore always open on the newest feed; Following keeps your place (it pages back in time).
+      if (feed === feeds.fyp || feed === feeds.explore) { freshFeed(feed); feedGo(0); }
+      else feedGo(Math.max(0, feed.i));
+    }
     function step(dir) {
       if (!cur) return;
       if (cur.kind === 'feed') return feedGo(feed.i + dir);

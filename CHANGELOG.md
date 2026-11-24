@@ -2,6 +2,25 @@
 
 All notable changes to this project. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.6.3]
+### Changed
+- TV-mode Magic Remote **wheel browsing is slower and steadier**: the wheel throws off many notches per
+  flick, so the minimum gap between moves went from 250ms to 450ms (`WHEEL_MS`). One notch = one row/video/
+  episode as before; the D-pad is still 1:1 for precise stepping.
+- **For You and Explore now open on the newest feed every time.** They used to resume the cached list at your
+  last spot; selecting them from home now drops the cached videos and pulls fresh ones (Following still keeps
+  your place, since it pages back in time).
+- **Popular short dramas refreshes to the newest** when you return to the home screen (throttled to ~2 min,
+  and skipped while you're scrolling inside the grid, to avoid hammering the API / tripping the captcha).
+### Fixed
+- **"More like this" on a drama now always shows related dramas.** It relied on TikTok's per-creator
+  recommend list, which is empty or unavailable for many dramas (no creator ID), leaving "No recommendations
+  right now". When that list is empty it now falls back to other dramas in the drama's **main genre**
+  (`/api/drama/theme/drama_list/`), so there's always something related to go to next.
+### QA
+- `tools/tvsim`: full screen walk passes with 0 JS errors; genre fallback confirmed (with recommend forced
+  empty, each opened drama fetches same-genre recs). On-TV QA pending (LG 50UR7550).
+
 ## [2.6.2]
 ### Fixed
 - **Videos stuck on "loading" everywhere** (TV mode For You/Following/Explore and the full site): a video player
