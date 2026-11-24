@@ -888,17 +888,21 @@
         }).catch(function () { return []; });
     }
     function recsFor(d) {
-      return recP[d.dramaID] || (recP[d.dramaID] = authorOf(d).then(function (uid) {
-        return api('/api/drama/recommend/drama_list/', 'dramaID=' + d.dramaID + '&authorUID=' + uid + '&coverFormat=2')
-          .then(function (j) { return remember(j.dramaList).filter(function (x) { return x.dramaID !== d.dramaID; }); });
-      }).catch(function () { return []; })        // no creator / call failed -> fall through to genre
-      .then(function (list) {
-        if (list && list.length) return list;
-        return genreRecsFor(d);                   // same-genre dramas so there's always something related
+      return recP[d.dramaID] || (recP[d.dramaID] = genreRecsFor(d).then(function (genre) {
+        // "More like this" = same genre first. TikTok's own recommend list is creator-based and mixes
+        // genres, so only use it to top up when the same-genre list comes back thin.
+        if (genre.length >= 8) return genre;
+        return authorOf(d).then(function (uid) {
+          return api('/api/drama/recommend/drama_list/', 'dramaID=' + d.dramaID + '&authorUID=' + uid + '&coverFormat=2')
+            .then(function (j) { return remember(j.dramaList).filter(function (x) { return x.dramaID !== d.dramaID; }); });
+        }).catch(function () { return []; }).then(function (rec) {
+          var seen = {}; genre.forEach(function (x) { seen[x.dramaID] = 1; });
+          return genre.concat(rec.filter(function (x) { return !seen[x.dramaID]; }));
+        });
       }).then(function (list) {
         if (!list.length) { delete recP[d.dramaID]; return list; }   // nothing yet: allow a retry next open
         list.forEach(function (x, i) { x._o = i; });
-        return list.sort(function (a, b) { return shared(d, b) - shared(d, a) || a._o - b._o; });
+        return list.sort(function (a, b) { return shared(d, b) - shared(d, a) || a._o - b._o; });   // closest genre match first
       }).catch(function (e) { delete recP[d.dramaID]; throw e; }));
     }
 

@@ -2,6 +2,13 @@
 
 All notable changes to this project. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.6.4]
+### Fixed
+- **"More like this" now actually matches the drama you opened.** 2.6.3 asked TikTok's recommend API
+  first, but that list is creator-based and mixes genres, so it often looked unrelated. It now uses
+  **same-genre dramas first** (`/api/drama/theme/drama_list/` on the drama's main genre), and only tops
+  up with TikTok's recommendations when the same-genre list is thin.
+
 ## [2.6.3]
 ### Changed
 - TV-mode Magic Remote **wheel browsing is slower and steadier**: the wheel throws off many notches per
